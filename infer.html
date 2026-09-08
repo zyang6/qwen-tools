@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>推理显存建模</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --ink: #16181d;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --accent: #3b5bcc;
+      --sans: Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body { color: var(--ink); font: 14px/1.5 var(--sans); background: var(--bg); }
+    header {
+      background: rgba(255, 255, 255, 0.92);
+      border-bottom: 1px solid var(--line);
+      padding: 12px 20px 14px;
+    }
+    header a.home { color: var(--muted); text-decoration: none; font-size: 12px; letter-spacing: .04em; display: inline-block; margin-bottom: 6px; }
+    header a.home:hover { color: var(--accent); }
+    header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+    header p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+    header p a { color: var(--accent); text-decoration: none; }
+    header p a:hover { text-decoration: underline; }
+    iframe {
+      display: block; width: 100%; height: calc(100% - 86px);
+      border: 0; background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="home" href="./">← QWEN 小工具</a>
+    <h1>推理显存建模</h1>
+    <p>MoE 推理单卡规划 · 嵌入 <a href="https://eco-sphere.github.io/infer-memory-visualizer/" target="_blank" rel="noopener">Eco-Sphere Memory Planner</a></p>
+  </header>
+  <iframe
+    src="https://eco-sphere.github.io/infer-memory-visualizer/"
+    title="推理显存建模"
+    referrerpolicy="no-referrer-when-downgrade"
+  ></iframe>
+</body>
+</html>
