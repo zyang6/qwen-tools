@@ -3,12 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
   <title>推理显存建模</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     :root {
+      color-scheme: light only;
       --bg: #f6f7f9;
       --ink: #16181d;
       --muted: #6b7280;
@@ -18,7 +20,7 @@
       --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f6f7f9; }
     body { color: var(--ink); font: 14px/1.5 var(--sans); background: var(--bg); }
     header {
       background: rgba(255, 255, 255, 0.92);
