@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FSDP 显存建模</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --card: #fff;
+      --line: #e3e6eb;
+      --text: #1a2332;
+      --muted: #667085;
+      --accent: #1f4e79;
+      --ok: #0f6b3a;
+      --warn: #8a4b00;
+      --bad: #9b1c1c;
+      --mono: ui-monospace, Menlo, Consolas, monospace;
+      --sans: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
+    header { background: var(--accent); color: #fff; padding: 16px 20px; }
+    header a.home { color: rgba(255,255,255,.88); text-decoration: none; font-size: 12px; display: inline-block; margin-bottom: 6px; }
+    header a.home:hover { text-decoration: underline; }
+    header h1 { margin: 0; font-size: 18px; font-weight: 650; }
+    header p { margin: 4px 0 0; font-size: 13px; opacity: .88; }
+    .page { max-width: 980px; margin: 16px auto 40px; padding: 0 16px; display: grid; gap: 12px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+    .drop {
+      border: 1.5px dashed #b9c4d1; border-radius: 8px; padding: 18px 12px;
+      text-align: center; color: var(--muted); background: #fafbfc; cursor: pointer;
+    }
+    .drop.over, .drop:hover { border-color: var(--accent); background: #f3f7fb; }
+    .drop strong { color: var(--text); display: block; margin-bottom: 4px; }
+    .drop .fn { color: var(--ok); font-size: 12px; margin-top: 6px; word-break: break-all; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button {
+      border: 1px solid var(--line); background: #fff; border-radius: 7px;
+      padding: 6px 12px; cursor: pointer; font: inherit;
+    }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .chip {
+      font-size: 12px; background: #eef2f6; color: #334; border-radius: 99px;
+      padding: 2px 9px;
+    }
+    .chip.ok { background: #e4f5ea; color: var(--ok); }
+    .chip.warn { background: #fff1d6; color: var(--warn); }
+    .chip.bad { background: #fde8e8; color: var(--bad); }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 700px) { .stats { grid-template-columns: 1fr; } }
+    .stat { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+    .stat.main { background: #f3f8fc; border-color: #8fb4d9; }
+    .stat .k { font-size: 12px; color: var(--muted); }
+    .stat .v { font: 650 22px/1.2 var(--mono); margin-top: 4px; }
+    .stat .s { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .note { font-size: 12px; color: var(--warn); background: #fff8eb; border: 1px solid #f0d9a8; border-radius: 8px; padding: 8px 10px; }
+    .okbox { font-size: 12px; color: var(--ok); background: #f3faf5; border: 1px solid #c6e6d0; border-radius: 8px; padding: 8px 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: var(--muted); font-weight: 600; padding: 5px 0; vertical-align: top; }
+    td { text-align: right; font-family: var(--mono); padding: 5px 0; }
+    tr { border-bottom: 1px solid var(--line); }
+    .err { color: var(--bad); font-size: 12px; min-height: 1.2em; }
+    .bar { height: 10px; background: #eef2f6; border-radius: 99px; overflow: hidden; display: flex; margin-top: 10px; }
+    .bar > i { display: block; height: 100%; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .legend b { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px 12px; }
+    label.f { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+    label.f.check { flex-direction: row; align-items: center; gap: 8px; margin-top: 18px; }
+    label.f.check input { width: auto; }
+    .f span.hint { font-size: 11px; color: #98a2b3; }
+    input[type=number], select {
+      width: 100%; font: 13px var(--mono); padding: 6px 8px;
+      border: 1px solid var(--line); border-radius: 6px; background: #fff;
+    }
+    h3.sec { margin: 0 0 10px; font-size: 13px; color: var(--text); }
+    .muted { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="home" href="./">← QWEN 小工具</a>
+    <h1>FSDP 显存建模</h1>
+    <p>只导入权重 config。静态 N/P×字节；高峰 = 静态 + FSDP/GMM 工作集 + 可选激活。</p>
+  </header>
+
+  <div class="page">
+    <section class="card">
+      <div class="drop" id="dropCfg">
+        <strong>权重 config.json</strong>
+        拖入或点击选择。切分、数据、优化在下方选，不必导入 yaml / .sh。
+        <div class="fn" id="fnCfg">未选择</div>
+        <input id="fileCfg" type="file" accept=".json,application/json" hidden />
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button type="button" class="primary" id="btnPreset">预置 20L / Qwen3.6-35B</button>
+        <span class="muted" id="cfgHint">未加载结构时用预置 20 层 MoE 多模态</span>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="err" id="err"></div>
+    </section>
+
+    <section class="card">
+      <div class="stats">
+        <div class="stat main">
+          <div class="k">静态 · dump allocated</div>
+          <div class="v" id="vStatic">—</div>
+          <div class="s" id="vFormula"></div>
+        </div>
+        <div class="stat" id="peakBox">
+          <div class="k">高峰 · max allocated</div>
+          <div class="v" id="vPeak">—</div>
+          <div class="s" id="vPeakSub"></div>
+        </div>
+      </div>
+      <div class="bar" id="hbmBar"></div>
+      <div class="legend" id="hbmLegend"></div>
+      <div id="note" class="okbox" style="margin-top:10px;"></div>
+    </section>
+
+    <section class="card">
+      <h3 class="sec">切分</h3>
+      <div class="fields">
+        <label class="f">FSDP 卡数 P<span class="hint">fully_shard，静态 ÷P</span>
+          <input id="ovP" type="number" min="1" step="1" />
+        </label>
+        <label class="f">EP<span class="hint">expert 并行；&gt;1 时 gather 体积 ÷EP</span>
+          <input id="ovEP" type="number" min="1" step="1" />
+        </label>
+        <label class="f">Wrap 粒度<span class="hint">决定高峰里的 U</span>
+          <select id="ovWrap">
+            <option value="0">嵌套（experts 最大）</option>
+            <option value="1">整层 layers.*</option>
+          </select>
+        </label>
+        <label class="f">单卡容量 GiB<span class="hint">只做余量条，不是 npu-smi</span>
+          <input id="ovHbm" type="number" min="1" step="1" />
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 class="sec">精度 / 优化器 / 结构覆盖</h3>
+      <div class="fields">
+        <label class="f">param_dtype
+          <select id="ovDtype">
+            <option value="2">bf16（2 字节）</option>
+            <option value="4">fp32（4 字节）</option>
+          </select>
+        </label>
+        <label class="f">reduce_dtype<span class="hint">高峰 reduce 输入</span>
+          <select id="ovReduce">
+            <option value="4">fp32</option>
+            <option value="2">bf16</option>
+          </select>
+        </label>
+        <label class="f">优化器
+          <select id="ovOpt">
+            <option value="2">AdamW 两份 fp32</option>
+            <option value="0">无 Adam（推理/未 step）</option>
+          </select>
+        </label>
+        <label class="f">MTP 层<span class="hint">覆盖 config 里的 mtp_num_hidden_layers</span>
+          <input id="ovMtp" type="number" min="0" step="1" />
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 class="sec">训练数据<span class="muted"> · 填真实 input 长度，不是 yaml 的 cutoff_len</span></h3>
+      <div class="fields">
+        <label class="f">真实 seq<span class="hint">每条样本 token 数</span>
+          <input id="ovSeq" type="number" min="1" step="1" />
+        </label>
+        <label class="f">micro_batch_size
+          <input id="ovMbs" type="number" min="1" step="1" />
+        </label>
+        <label class="f">chunk_mbs<span class="hint">0 = 不切；每次 forward 用这个</span>
+          <input id="ovChunk" type="number" min="0" step="1" />
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 class="sec">显存优化</h3>
+      <div class="fields">
+        <label class="f">prefetch<span class="hint">再聚几层；0 少一份 U</span>
+          <input id="ovPrefetch" type="number" min="0" step="1" />
+        </label>
+        <label class="f check"><input id="ovRecompute" type="checkbox" /> recompute 层激活</label>
+        <label class="f check"><input id="ovOffload" type="checkbox" /> activation offload</label>
+        <label class="f check"><input id="ovSkipGdn" type="checkbox" /> skip_gdn_recompute</label>
+        <label class="f check"><input id="ovGmm" type="checkbox" /> grouped expert matmul</label>
+        <label class="f check"><input id="ovFreeze" type="checkbox" /> 冻结 ViT</label>
+        <label class="f check"><input id="ovLora" type="checkbox" /> LoRA（静态会标不适用）</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <table>
+        <tbody id="breakBody"></tbody>
+      </table>
+    </section>
+  </div>
+
+<script>
+const GIB = 1024 ** 3;
+
+const DEFAULT_35B = {
+  vocab: 248320, hidden: 2048, layers: 20, experts: 256, moeI: 512, shareI: 512, denseI: 0,
+  nQ: 16, nKV: 2, headDim: 256, fullInterval: 4,
+  gdnKH: 16, gdnKD: 128, gdnVH: 32, gdnVD: 128, gdnConv: 4, mtp: 0,
+  vitDepth: 27, vitH: 1152, vitI: 4304, vitOut: 2048,
+  patch: 16, tPatch: 2, inCh: 3, merge: 2, nPos: 2304,
+  tie: false, attnGate: true, layerTypes: [],
+  arch: "Qwen3_5MoeForConditionalGeneration",
+};
+
+function defaultLayerTypes(L, iv) {
+  return Array.from({ length: L }, (_, i) => ((i + 1) % iv === 0 ? "full_attention" : "linear_attention"));
+}
+
+function defaultTrain() {
+  return {
+    P: 8, EP: 1, bw: 2, includeGrad: true, nAdam: 2, bAdam: 4, bReduce: 4,
+    mbs: 4, seq: 512, chunk: 2, prefetch: 1, wrap: 0,
+    freezeVisual: false, lora: false, recompute: true, offload: true,
+    skipGdn: true, gmm: true, hbm: 64, mtp: 0,
+  };
+}
+
+const S = {
+  model: { ...DEFAULT_35B, layerTypes: defaultLayerTypes(20, 4) },
+  train: defaultTrain(),
+  cfgName: "",
+};
+
+function $(id) { return document.getElementById(id); }
+function pick(obj, keys, fb) {
+  if (!obj) return fb;
+  for (const k of keys) if (obj[k] != null) return obj[k];
+  return fb;
+}
+function fmtG(x) { return (Math.round(x * 1000) / 1000).toFixed(3); }
+function fmtN(x) { return Math.round(x).toLocaleString("en-US"); }
+
+function parseConfig(cfg) {
+  const text = cfg.text_config || cfg.language_config || cfg;
+  const vis = cfg.vision_config || {};
+  const nQ = pick(text, ["num_attention_heads"], 0);
+  const H = pick(text, ["hidden_size"], 0);
+  return {
+    vocab: pick(text, ["vocab_size"], 0),
+    hidden: H,
+    layers: pick(text, ["num_hidden_layers"], 0),
+    experts: pick(text, ["num_experts", "num_local_experts"], 0),
+    moeI: pick(text, ["moe_intermediate_size"], 0),
+    shareI: pick(text, ["shared_expert_intermediate_size"], pick(text, ["moe_intermediate_size"], 0)),
+    denseI: pick(text, ["intermediate_size"], 0),
+    nQ,
+    nKV: pick(text, ["num_key_value_heads"], 0),
+    headDim: pick(text, ["head_dim"], 0) || (H && nQ ? H / nQ : 0),
+    fullInterval: pick(text, ["full_attention_interval"], 4),
+    gdnKH: pick(text, ["linear_num_key_heads"], 0),
+    gdnKD: pick(text, ["linear_key_head_dim"], 0),
+    gdnVH: pick(text, ["linear_num_value_heads"], 0),
+    gdnVD: pick(text, ["linear_value_head_dim"], 0),
+    gdnConv: pick(text, ["linear_conv_kernel_dim"], 4),
+    mtp: pick(text, ["mtp_num_hidden_layers"], 0),
+    tie: !!(cfg.tie_word_embeddings ?? text.tie_word_embeddings),
+    attnGate: !!text.attn_output_gate,
+    vitDepth: pick(vis, ["depth"], 0),
+    vitH: pick(vis, ["hidden_size"], 0),
+    vitI: pick(vis, ["intermediate_size"], 0),
+    vitOut: pick(vis, ["out_hidden_size"], 0),
+    patch: pick(vis, ["patch_size"], 16),
+    tPatch: pick(vis, ["temporal_patch_size"], 2),
+    inCh: pick(vis, ["in_channels"], 3),
+    merge: pick(vis, ["spatial_merge_size"], 2),
+    nPos: pick(vis, ["num_position_embeddings"], 0),
+    layerTypes: text.layer_types || [],
+    arch: (cfg.architectures || [cfg.model_type || ""]).join(", "),
+    modelType: cfg.model_type || text.model_type || "",
+  };
+}
+
+function detectFamily(m) {
+  const moe = (m.experts || 0) > 0;
+  const vit = (m.vitDepth || 0) > 0;
+  const gdn = (m.gdnKH || 0) > 0;
+  if (moe && vit && gdn) return { id: "qwen35_moe_vl", label: "Qwen3.5/3.6 MoE 多模态" };
+  if (!moe && vit && gdn) return { id: "qwen35_dense_vl", label: "Qwen3.5 Dense 多模态" };
+  if (vit && !gdn) return { id: "qwen3_vl", label: "Qwen3-VL Dense" };
+  if (moe && !vit) return { id: "qwen3_moe_text", label: "Qwen3 MoE 文本" };
+  return { id: "qwen3_dense_text", label: "Qwen3 Dense 文本" };
+}
+
+function shardUneven(H, V, E, P) {
+  if (!P) return false;
+  return (H && H % P !== 0) || (V && V % P !== 0) || (E && E % P !== 0);
+}
+
+function compute(model, train) {
+  const p = { ...model, ...train };
+  const V = p.vocab, H = p.hidden, L = p.layers, E = p.experts, I = p.moeI;
+  const P = Math.max(p.P || 1, 1);
+  const EP = Math.max(p.EP || 1, 1);
+  const Pdense = P;
+  const Pexpert = EP > 1 ? EP : P;
+  const bw = p.bw, bg = p.includeGrad ? bw : 0;
+  const bStatic = bw + bg + p.nAdam * p.bAdam;
+  const mtp = p.mtp || 0;
+
+  const embed = V * H;
+  const lm = p.tie ? 0 : V * H;
+  let gateUp = 0, down = 0, moeOther = 0, denseMlp = 0;
+  if (E > 0) {
+    gateUp = E * H * 2 * I;
+    down = E * I * H;
+    moeOther = E * H + 3 * H * (p.shareI || I) + H;
+  } else if (p.denseI > 0) {
+    denseMlp = 3 * H * p.denseI;
+  }
+  const mlpPer = gateUp + down + moeOther + denseMlp;
+
+  const fullAttn = H * p.nQ * p.headDim * (p.attnGate ? 2 : 1)
+    + H * p.nKV * p.headDim + H * p.nKV * p.headDim
+    + p.nQ * p.headDim * H + 2 * p.headDim;
+  const hasGdn = (p.gdnKH || 0) > 0;
+  const gdn = hasGdn
+    ? H * (2 * p.gdnKH * p.gdnKD + 2 * p.gdnVH * p.gdnVD + 2 * p.gdnVH)
+      + p.gdnVH * p.gdnVD * H
+      + p.gdnConv * (2 * p.gdnKH * p.gdnKD + p.gdnVH * p.gdnVD)
+      + 2 * p.gdnVH + p.gdnVD
+    : 0;
+
+  let nFull, nGdn;
+  const types = (p.layerTypes || []).filter(Boolean);
+  if (!hasGdn) { nFull = L; nGdn = 0; }
+  else if (types.length === L) {
+    nFull = types.filter((t) => String(t).includes("full")).length;
+    nGdn = L - nFull;
+  } else {
+    nFull = p.fullInterval > 0 ? Math.floor(L / p.fullInterval) : 0;
+    nGdn = L - nFull;
+  }
+  const attn = nFull * fullAttn + nGdn * gdn;
+  const mtpN = mtp * (mlpPer + 2 * H + (hasGdn ? (fullAttn + gdn) / 2 : fullAttn));
+  const textN = embed + lm + H + attn + L * (mlpPer + 2 * H) + mtpN;
+
+  let vit = 0;
+  if (!p.freezeVisual && p.vitDepth > 0 && p.vitH > 0) {
+    const Hv = p.vitH, Iv = p.vitI, out = p.vitOut, sm = p.merge;
+    const patch = p.inCh * p.tPatch * p.patch * p.patch * Hv + Hv;
+    const block = Hv * (Hv * 3) + (Hv * 3) + Hv * Hv + Hv + Hv * Iv + Iv + Iv * Hv + Hv + 2 * Hv;
+    const merger = Hv + (Hv * sm * sm) ** 2 + (Hv * sm * sm) + (Hv * sm * sm) * out + out + p.nPos * Hv;
+    vit = patch + p.vitDepth * block + merger;
+  }
+
+  const N = textN + vit;
+  const nExpert = E > 0 ? (L + mtp) * (gateUp + down) : 0;
+  const perCard = (N - nExpert) / Pdense + nExpert / Math.max(Pexpert, 1);
+  const paramG = perCard * bw / GIB;
+  const gradG = perCard * bg / GIB;
+  const adamG = perCard * p.nAdam * p.bAdam / GIB;
+  const staticG = paramG + gradG + adamG;
+
+  const expertNumel = gateUp + down;
+  const attnAvg = L ? (nFull * fullAttn + nGdn * gdn) / L : 0;
+  const layerNumel = expertNumel + moeOther + attnAvg + 2 * H;
+  const unitNumel = p.wrap ? layerNumel : (expertNumel || layerNumel);
+  const Ufull = unitNumel * bw / GIB;
+  const U = Ufull / EP;
+
+  const prefetch = Math.max(p.prefetch || 0, 0);
+  const bReduce = p.bReduce || bw;
+  const reduceScale = bw ? bReduce / bw : 1;
+  const copiesG = (2 + prefetch) * U;
+  const reduceInG = U * reduceScale;
+  const gmmG = (p.gmm && E > 0 && !p.wrap) ? U : 0;
+  const stackedG = (L + mtp) * U * reduceScale / P;
+  const workG = copiesG + reduceInG + gmmG;
+
+  const samplesFwd = (p.chunk || 0) > 0 ? p.chunk : Math.max(p.mbs || 1, 1);
+  const tokens = samplesFwd * Math.max(p.seq || 1, 1);
+  const hiddenG = tokens * H * 2 / GIB;
+  const liveLayers = (p.recompute || p.offload) ? 1 : Math.max(L, 1);
+  let actG = liveLayers * hiddenG;
+  if (p.skipGdn && nGdn > 0 && !p.offload) {
+    const qkv = 2 * (p.gdnKH || 0) * (p.gdnKD || 0) + (p.gdnVH || 0) * (p.gdnVD || 0);
+    actG += nGdn * tokens * qkv * 2 / GIB;
+  }
+
+  const empExcess = workG + stackedG + actG;
+  const empMaxG = staticG + empExcess;
+  const peakOk = !p.lora && p.includeGrad && U > 0;
+  const uneven = shardUneven(H, V, E, P);
+
+  return {
+    N, P, EP, Pdense, Pexpert, bStatic, perCard, paramG, gradG, adamG, staticG,
+    nFull, nGdn, peakOk, empMaxG, empExcess, copiesG, reduceInG, gmmG, stackedG, actG, workG,
+    U, nExpert, vit, L, H, V, E, mbs: p.mbs, seq: p.seq, chunk: p.chunk, prefetch,
+    samplesFwd, tokens, liveLayers, uneven, lora: !!p.lora, mtp,
+  };
+}
+
+function readForm() {
+  const t = S.train;
+  t.P = Math.max(1, Number($("ovP").value) || t.P);
+  t.EP = Math.max(1, Number($("ovEP").value) || t.EP);
+  t.wrap = Number($("ovWrap").value) ? 1 : 0;
+  t.hbm = Math.max(1, Number($("ovHbm").value) || t.hbm);
+  t.bw = Number($("ovDtype").value) || 2;
+  t.bReduce = Number($("ovReduce").value) || 4;
+  t.nAdam = Number($("ovOpt").value) || 0;
+  t.mtp = Math.max(0, Number($("ovMtp").value) || 0);
+  S.model.mtp = t.mtp;
+  t.seq = Math.max(1, Number($("ovSeq").value) || t.seq);
+  t.mbs = Math.max(1, Number($("ovMbs").value) || t.mbs);
+  t.chunk = Math.max(0, Number($("ovChunk").value) || 0);
+  t.prefetch = Math.max(0, Number($("ovPrefetch").value) || 0);
+  t.recompute = $("ovRecompute").checked;
+  t.offload = $("ovOffload").checked;
+  t.skipGdn = $("ovSkipGdn").checked;
+  t.gmm = $("ovGmm").checked;
+  t.freezeVisual = $("ovFreeze").checked;
+  t.lora = $("ovLora").checked;
+  t.includeGrad = t.nAdam > 0;
+}
+
+function writeForm() {
+  const t = S.train;
+  $("ovP").value = t.P;
+  $("ovEP").value = t.EP;
+  $("ovWrap").value = String(t.wrap || 0);
+  $("ovHbm").value = t.hbm;
+  $("ovDtype").value = String(t.bw);
+  $("ovReduce").value = String(t.bReduce);
+  $("ovOpt").value = String(t.nAdam);
+  $("ovMtp").value = t.mtp;
+  $("ovSeq").value = t.seq;
+  $("ovMbs").value = t.mbs;
+  $("ovChunk").value = t.chunk;
+  $("ovPrefetch").value = t.prefetch;
+  $("ovRecompute").checked = !!t.recompute;
+  $("ovOffload").checked = !!t.offload;
+  $("ovSkipGdn").checked = !!t.skipGdn;
+  $("ovGmm").checked = !!t.gmm;
+  $("ovFreeze").checked = !!t.freezeVisual;
+  $("ovLora").checked = !!t.lora;
+}
+
+function render() {
+  writeForm();
+  const fam = detectFamily(S.model);
+  const r = compute(S.model, S.train);
+  const hbm = S.train.hbm;
+  const showPeak = r.peakOk;
+
+  $("vStatic").textContent = fmtG(r.staticG) + " GiB";
+  $("vFormula").textContent = r.uneven
+    ? "N/P×" + r.bStatic + " 是均值下界；P 除不尽 H/V/E"
+    : "N/P × " + r.bStatic + " byte";
+
+  if (showPeak) {
+    $("vPeak").textContent = fmtG(r.empMaxG) + " GiB";
+    $("vPeakSub").textContent = "工作集 " + fmtG(r.workG) + " + 堆积 " + fmtG(r.stackedG)
+      + " + 激活 " + fmtG(r.actG) + " · U=" + fmtG(r.U);
+    $("peakBox").style.opacity = "1";
+  } else {
+    $("vPeak").textContent = "不适用";
+    $("vPeakSub").textContent = r.lora ? "LoRA 不能按全量 N×12 / 全量 U" : "没有 wrap 单元 U";
+    $("peakBox").style.opacity = ".7";
+  }
+
+  const chips = [
+    `<span class="chip">${fam.label}</span>`,
+    `<span class="chip">${r.L}L · P=${r.P} · EP=${r.EP}</span>`,
+    `<span class="chip">seq=${r.seq} mbs=${r.mbs} chunk=${r.chunk}</span>`,
+    `<span class="chip">${S.train.bw === 2 ? "bf16" : "fp32"} ${S.train.nAdam ? "AdamW" : "无 Adam"}</span>`,
+  ];
+  if (S.cfgName) chips.unshift(`<span class="chip ok">${S.cfgName}</span>`);
+  if ((S.model.mtp || 0) > 0) chips.push(`<span class="chip warn">MTP=${S.model.mtp}</span>`);
+  if (r.uneven) chips.push(`<span class="chip warn">P 不能整除 H/V/E</span>`);
+  if (r.lora) chips.push(`<span class="chip bad">LoRA：全量公式不适用</span>`);
+  if (S.train.wrap) chips.push(`<span class="chip">整层 wrap</span>`);
+  if (S.train.freezeVisual) chips.push(`<span class="chip">冻视觉</span>`);
+  if (!S.train.recompute) chips.push(`<span class="chip warn">未开 recompute，激活按 L 层估</span>`);
+  $("chips").innerHTML = chips.join("");
+
+  const note = $("note");
+  if (r.lora) {
+    note.className = "note";
+    note.textContent = "LoRA 只给 adapter 建 Adam，本页按全量参数会高估静态和高峰。";
+  } else if (!showPeak) {
+    note.className = "note";
+    note.textContent = "当前结构算不出 wrap 单元 U，只显示静态。";
+  } else {
+    note.className = "okbox";
+    note.textContent = "静态对 dump allocated。高峰 = 静态 + (2+prefetch)U + reduce 输入 + GMM + L×(reduce分片) + 激活。激活用你填的真实 seq；recompute/offload 时按 1 层 hidden。";
+  }
+
+  const peakW = showPeak ? Math.min(100, r.empMaxG / hbm * 100) : 0;
+  const stW = Math.min(100, r.staticG / hbm * 100);
+  $("hbmBar").innerHTML =
+    `<i style="width:${stW}%;background:#2e75b6"></i>` +
+    (showPeak ? `<i style="width:${Math.max(0, peakW - stW)}%;background:#ed7d31"></i>` : "");
+  $("hbmLegend").innerHTML =
+    `<span><b style="background:#2e75b6"></b>静态 ${fmtG(r.staticG)}</span>` +
+    (showPeak ? `<span><b style="background:#ed7d31"></b>高峰 ${fmtG(r.empMaxG)}</span>` : "") +
+    `<span>相对单卡 ${hbm} GiB</span>`;
+
+  const rows = [
+    ["总参数 N", fmtN(r.N) + "  (" + (r.N / 1e9).toFixed(3) + " B)"],
+    ["每卡参数 / 梯度 / Adam", fmtG(r.paramG) + " / " + fmtG(r.gradG) + " / " + fmtG(r.adamG) + " GiB"],
+    ["full / GDN 层", r.nFull + " / " + r.nGdn],
+    ["P_dense / P_expert", r.Pdense + " / " + r.Pexpert],
+    ["静态相对单卡", fmtG(hbm - r.staticG) + " GiB"],
+  ];
+  if (showPeak) {
+    rows.push(["wrap 单元 U", fmtG(r.U) + " GiB" + (r.EP > 1 ? "（已 ÷EP）" : "")]);
+    rows.push(["并发工作集 (2+prefetch)U + reduce + GMM", fmtG(r.workG) + " GiB"]);
+    rows.push(["堆积 L×2U/P（reduce 分片）", fmtG(r.stackedG) + " GiB"]);
+    rows.push(["激活（" + r.liveLayers + " 层 × " + r.tokens + " token）", fmtG(r.actG) + " GiB"]);
+    rows.push(["超额合计", fmtG(r.empExcess) + " GiB"]);
+    rows.push(["高峰相对单卡", fmtG(hbm - r.empMaxG) + " GiB"]);
+  }
+  if (r.uneven) {
+    rows.push(["分片对齐", "P=" + r.P + " 除不尽时各卡会不均，公式是均值"]);
+  }
+  $("breakBody").innerHTML = rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+}
+
+function setErr(msg) { $("err").textContent = msg || ""; }
+
+function applyPreset() {
+  S.model = { ...DEFAULT_35B, layerTypes: defaultLayerTypes(20, 4) };
+  S.train = defaultTrain();
+  S.cfgName = "";
+  $("fnCfg").textContent = "预置：Qwen3.6-35B-A3B 20L 结构";
+  $("cfgHint").textContent = "MTP 已按训练常用值设为 0；可在下方改。";
+  $("btnPreset").classList.add("active");
+  setErr("");
+  writeForm();
+  render();
+}
+
+function onCfgText(text, name) {
+  const cfg = JSON.parse(text);
+  const m = parseConfig(cfg);
+  if (!m.hidden || !m.layers) throw new Error("未读到 hidden_size / num_hidden_layers");
+  S.model = { ...DEFAULT_35B, ...m };
+  if (!S.model.layerTypes.length) S.model.layerTypes = defaultLayerTypes(S.model.layers, S.model.fullInterval || 4);
+  S.train.mtp = m.mtp || 0;
+  S.model.mtp = S.train.mtp;
+  S.cfgName = name;
+  $("fnCfg").textContent = name + " · L=" + m.layers + " · " + (m.arch || "");
+  $("cfgHint").textContent = "结构已加载。HF config 若 MTP=1，可在「MTP 层」改成 0。";
+  $("btnPreset").classList.remove("active");
+  setErr("");
+  writeForm();
+  render();
+}
+
+function bindCfg() {
+  const box = $("dropCfg"), input = $("fileCfg");
+  box.addEventListener("click", () => input.click());
+  box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("over"); });
+  box.addEventListener("dragleave", () => box.classList.remove("over"));
+  box.addEventListener("drop", (e) => {
+    e.preventDefault();
+    box.classList.remove("over");
+    const f = e.dataTransfer.files[0];
+    if (f) f.text().then((t) => onCfgText(t, f.name)).catch((err) => setErr("config 解析失败：" + err.message));
+  });
+  input.addEventListener("change", () => {
+    if (input.files[0]) {
+      const f = input.files[0];
+      f.text().then((t) => onCfgText(t, f.name)).catch((err) => setErr("config 解析失败：" + err.message));
+    }
+  });
+}
+
+$("btnPreset").addEventListener("click", applyPreset);
+bindCfg();
+
+document.querySelectorAll("input, select").forEach((el) => {
+  if (el.id === "fileCfg") return;
+  el.addEventListener("input", () => {
+    readForm();
+    $("btnPreset").classList.remove("active");
+    render();
+  });
+  el.addEventListener("change", () => {
+    readForm();
+    $("btnPreset").classList.remove("active");
+    render();
+  });
+});
+
+applyPreset();
+</script>
+</body>
+</html>
