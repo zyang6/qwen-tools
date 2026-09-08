@@ -4,66 +4,75 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FSDP 显存建模</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #f5f6f8;
-      --card: #fff;
-      --line: #e3e6eb;
-      --text: #1a2332;
-      --muted: #667085;
-      --accent: #1f4e79;
-      --ok: #0f6b3a;
-      --warn: #8a4b00;
-      --bad: #9b1c1c;
-      --mono: ui-monospace, Menlo, Consolas, monospace;
-      --sans: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --bg: #07070a;
+      --card: #0e0e12;
+      --line: rgba(255, 255, 255, 0.08);
+      --text: #ededef;
+      --muted: #8a8f98;
+      --accent: #818cf8;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --bad: #f87171;
+      --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+      --sans: Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
-    header { background: var(--accent); color: #fff; padding: 16px 20px; }
-    header a.home { color: rgba(255,255,255,.88); text-decoration: none; font-size: 12px; display: inline-block; margin-bottom: 6px; }
-    header a.home:hover { text-decoration: underline; }
-    header h1 { margin: 0; font-size: 18px; font-weight: 650; }
-    header p { margin: 4px 0 0; font-size: 13px; opacity: .88; }
-    .page { max-width: 980px; margin: 16px auto 40px; padding: 0 16px; display: grid; gap: 12px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
-    .drop {
-      border: 1.5px dashed #b9c4d1; border-radius: 8px; padding: 18px 12px;
-      text-align: center; color: var(--muted); background: #fafbfc; cursor: pointer;
+    body {
+      margin: 0; color: var(--text); font: 14px/1.5 var(--sans);
+      background: radial-gradient(900px 420px at 12% -10%, rgba(99, 102, 241, 0.12), transparent 55%), var(--bg);
     }
-    .drop.over, .drop:hover { border-color: var(--accent); background: #f3f7fb; }
+    header {
+      background: rgba(7, 7, 10, 0.82); backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--line); color: var(--text); padding: 16px 20px;
+    }
+    header a.home { color: var(--muted); text-decoration: none; font-size: 12px; letter-spacing: .04em; display: inline-block; margin-bottom: 8px; }
+    header a.home:hover { color: var(--accent); }
+    header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+    header p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+    .page { max-width: 980px; margin: 16px auto 40px; padding: 0 16px; display: grid; gap: 12px; }
+    .card { background: rgba(14, 14, 18, 0.78); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    .drop {
+      border: 1px dashed rgba(255,255,255,.16); border-radius: 8px; padding: 18px 12px;
+      text-align: center; color: var(--muted); background: rgba(255,255,255,.02); cursor: pointer;
+    }
+    .drop.over, .drop:hover { border-color: var(--accent); background: rgba(129, 140, 248, 0.08); }
     .drop strong { color: var(--text); display: block; margin-bottom: 4px; }
     .drop .fn { color: var(--ok); font-size: 12px; margin-top: 6px; word-break: break-all; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     button {
-      border: 1px solid var(--line); background: #fff; border-radius: 7px;
+      border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 7px;
       padding: 6px 12px; cursor: pointer; font: inherit;
     }
-    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-    button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.primary { background: var(--accent); color: #ededef; border-color: var(--accent); box-shadow: 0 0 22px rgba(99, 102, 241, .28); }
+    button.active { background: var(--accent); color: #ededef; border-color: var(--accent); }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .chip {
-      font-size: 12px; background: #eef2f6; color: #334; border-radius: 99px;
+      font-size: 12px; background: rgba(255,255,255,.06); color: var(--muted); border-radius: 99px;
       padding: 2px 9px;
     }
-    .chip.ok { background: #e4f5ea; color: var(--ok); }
-    .chip.warn { background: #fff1d6; color: var(--warn); }
-    .chip.bad { background: #fde8e8; color: var(--bad); }
+    .chip.ok { background: rgba(52, 211, 153, .12); color: var(--ok); }
+    .chip.warn { background: rgba(251, 191, 36, .12); color: var(--warn); }
+    .chip.bad { background: rgba(248, 113, 113, .12); color: var(--bad); }
     .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     @media (max-width: 700px) { .stats { grid-template-columns: 1fr; } }
     .stat { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
-    .stat.main { background: #f3f8fc; border-color: #8fb4d9; }
+    .stat.main { background: rgba(129, 140, 248, 0.08); border-color: rgba(129, 140, 248, 0.28); }
     .stat .k { font-size: 12px; color: var(--muted); }
     .stat .v { font: 650 22px/1.2 var(--mono); margin-top: 4px; }
     .stat .s { font-size: 12px; color: var(--muted); margin-top: 4px; }
-    .note { font-size: 12px; color: var(--warn); background: #fff8eb; border: 1px solid #f0d9a8; border-radius: 8px; padding: 8px 10px; }
-    .okbox { font-size: 12px; color: var(--ok); background: #f3faf5; border: 1px solid #c6e6d0; border-radius: 8px; padding: 8px 10px; }
+    .note { font-size: 12px; color: var(--warn); background: rgba(251, 191, 36, .08); border: 1px solid rgba(251, 191, 36, .22); border-radius: 8px; padding: 8px 10px; }
+    .okbox { font-size: 12px; color: var(--ok); background: rgba(52, 211, 153, .08); border: 1px solid rgba(52, 211, 153, .22); border-radius: 8px; padding: 8px 10px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { text-align: left; color: var(--muted); font-weight: 600; padding: 5px 0; vertical-align: top; }
     td { text-align: right; font-family: var(--mono); padding: 5px 0; }
     tr { border-bottom: 1px solid var(--line); }
     .err { color: var(--bad); font-size: 12px; min-height: 1.2em; }
-    .bar { height: 10px; background: #eef2f6; border-radius: 99px; overflow: hidden; display: flex; margin-top: 10px; }
+    .bar { height: 10px; background: rgba(255,255,255,.06); border-radius: 99px; overflow: hidden; display: flex; margin-top: 10px; }
     .bar > i { display: block; height: 100%; }
     .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 6px; }
     .legend b { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
@@ -74,10 +83,10 @@
     label.f { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; min-height: 100%; }
     label.f.check { flex-direction: row; align-items: center; gap: 8px; min-height: 0; }
     label.f.check input { width: auto; }
-    .f span.hint { font-size: 11px; color: #98a2b3; line-height: 1.35; min-height: 2.7em; }
+    .f span.hint { font-size: 11px; color: var(--muted); line-height: 1.35; min-height: 2.7em; }
     input[type=number], select {
       width: 100%; height: 32px; margin-top: auto; font: 13px var(--mono); padding: 6px 8px;
-      border: 1px solid var(--line); border-radius: 6px; background: #fff;
+      border: 1px solid var(--line); border-radius: 6px; background: #121218; color: var(--text);
     }
     h3.sec { margin: 0 0 10px; font-size: 13px; color: var(--text); }
     .muted { color: var(--muted); font-size: 12px; }
@@ -87,20 +96,20 @@
   <header>
     <a class="home" href="./">← QWEN 小工具</a>
     <h1>FSDP 显存建模</h1>
-    <p>只导入权重 config。静态 N/P×字节；高峰 = 静态 + FSDP/GMM 工作集 + 可选激活。</p>
+    <p>仅导入权重 config.json。左侧为静态占用（dump allocated），右侧为训练高峰占用（max allocated）。</p>
   </header>
 
   <div class="page">
     <section class="card">
       <div class="drop" id="dropCfg">
         <strong>权重 config.json</strong>
-        拖入或点击选择。切分、数据、优化在下方选，不必导入 yaml / .sh。
+        拖放或点击选择。切分、数据与显存优化请在下方表单填写，无需导入训练 yaml 或启动脚本。
         <div class="fn" id="fnCfg">未选择</div>
         <input id="fileCfg" type="file" accept=".json,application/json" hidden />
       </div>
       <div class="row" style="margin-top:12px;">
         <button type="button" class="primary" id="btnPreset">预置 20L / Qwen3.6-35B</button>
-        <span class="muted" id="cfgHint">未加载结构时用预置 20 层 MoE 多模态</span>
+        <span class="muted" id="cfgHint">未加载 config 时采用预置 20 层 MoE 多模态结构</span>
       </div>
       <div class="chips" id="chips"></div>
       <div class="err" id="err"></div>
@@ -127,19 +136,19 @@
     <section class="card">
       <h3 class="sec">切分</h3>
       <div class="fields">
-        <label class="f">FSDP 卡数 P<span class="hint">fully_shard，静态 ÷P</span>
+        <label class="f">FSDP 卡数 P<span class="hint">fully_shard 并行度；静态占用按 P 均分</span>
           <input id="ovP" type="number" min="1" step="1" />
         </label>
-        <label class="f">EP<span class="hint">expert 并行；&gt;1 时 gather 体积 ÷EP</span>
+        <label class="f">EP<span class="hint">Expert Parallel；大于 1 时 all-gather 体积按 EP 均分</span>
           <input id="ovEP" type="number" min="1" step="1" />
         </label>
-        <label class="f">Wrap 粒度<span class="hint">决定高峰里的 U</span>
+        <label class="f">Wrap 粒度<span class="hint">fully_shard 的作用范围。嵌套：all-gather 单元为一层 expert；整层：单元为完整 decoder 层</span>
           <select id="ovWrap">
-            <option value="0">嵌套（experts 最大）</option>
-            <option value="1">整层 layers.*</option>
+            <option value="0">嵌套（以 experts 为最大单元）</option>
+            <option value="1">整层（layers.*）</option>
           </select>
         </label>
-        <label class="f">单卡容量 GiB<span class="hint">只做余量条，不是 npu-smi</span>
+        <label class="f">单卡容量 GiB<span class="hint">仅用于余量示意，不表示 npu-smi 读数</span>
           <input id="ovHbm" type="number" min="1" step="1" />
         </label>
       </div>
@@ -154,7 +163,7 @@
             <option value="4">fp32（4 字节）</option>
           </select>
         </label>
-        <label class="f">reduce_dtype<span class="hint">高峰 reduce 输入</span>
+        <label class="f">reduce_dtype<span class="hint">梯度 reduce-scatter 的数据类型，影响高峰占用</span>
           <select id="ovReduce">
             <option value="4">fp32</option>
             <option value="2">bf16</option>
@@ -162,26 +171,26 @@
         </label>
         <label class="f">优化器<span class="hint"></span>
           <select id="ovOpt">
-            <option value="2">AdamW 两份 fp32</option>
-            <option value="0">无 Adam（推理/未 step）</option>
+            <option value="2">AdamW（两份 fp32 状态）</option>
+            <option value="0">无 Adam（推理或尚未执行 step）</option>
           </select>
         </label>
-        <label class="f">MTP 层<span class="hint">覆盖 config 里的 mtp_num_hidden_layers</span>
+        <label class="f">MTP 层<span class="hint">覆盖 config.json 中的 mtp_num_hidden_layers</span>
           <input id="ovMtp" type="number" min="0" step="1" />
         </label>
       </div>
     </section>
 
     <section class="card">
-      <h3 class="sec">训练数据<span class="muted"> · 填真实 input 长度，不是 yaml 的 cutoff_len</span></h3>
+      <h3 class="sec">训练数据<span class="muted"> · 请填写实际序列长度，而非 yaml 中的 cutoff_len</span></h3>
       <div class="fields">
-        <label class="f">真实 seq<span class="hint">每条样本 token 数</span>
+        <label class="f">实际序列长度<span class="hint">单条样本的实际 token 数</span>
           <input id="ovSeq" type="number" min="1" step="1" />
         </label>
         <label class="f">micro_batch_size<span class="hint"></span>
           <input id="ovMbs" type="number" min="1" step="1" />
         </label>
-        <label class="f">chunk_mbs<span class="hint">0 = 不切；每次 forward 用这个</span>
+        <label class="f">chunk_mbs<span class="hint">0 表示不切分；大于 0 时每次 forward 的有效 batch 取该值</span>
           <input id="ovChunk" type="number" min="0" step="1" />
         </label>
       </div>
@@ -190,15 +199,15 @@
     <section class="card">
       <h3 class="sec">显存优化</h3>
       <div class="fields">
-        <label class="f">prefetch<span class="hint">再聚几层；0 少一份 U</span>
+        <label class="f">prefetch<span class="hint">前向预取层数。计算当前层时提前 all-gather 后续层；每增加 1，高峰占用增加 1×U。取 0 表示不预取</span>
           <input id="ovPrefetch" type="number" min="0" step="1" />
         </label>
-        <label class="f check"><input id="ovRecompute" type="checkbox" /> recompute 层激活</label>
+        <label class="f check"><input id="ovRecompute" type="checkbox" /> recompute（重计算层激活）</label>
         <label class="f check"><input id="ovOffload" type="checkbox" /> activation offload</label>
         <label class="f check"><input id="ovSkipGdn" type="checkbox" /> skip_gdn_recompute</label>
         <label class="f check"><input id="ovGmm" type="checkbox" /> grouped expert matmul</label>
         <label class="f check"><input id="ovFreeze" type="checkbox" /> 冻结 ViT</label>
-        <label class="f check"><input id="ovLora" type="checkbox" /> LoRA（静态会标不适用）</label>
+        <label class="f check"><input id="ovLora" type="checkbox" /> LoRA（全量公式不适用）</label>
       </div>
     </section>
 
@@ -465,17 +474,18 @@ function render() {
 
   $("vStatic").textContent = fmtG(r.staticG) + " GiB";
   $("vFormula").textContent = r.uneven
-    ? "N/P×" + r.bStatic + " 是均值下界；P 除不尽 H/V/E"
-    : "N/P × " + r.bStatic + " byte";
+    ? "N/P×" + r.bStatic + " 为均值下界；P 无法整除 H/V/E 时分片不均"
+    : "N/P × " + r.bStatic + " 字节";
 
   if (showPeak) {
     $("vPeak").textContent = fmtG(r.empMaxG) + " GiB";
-    $("vPeakSub").textContent = "工作集 " + fmtG(r.workG) + " + 堆积 " + fmtG(r.stackedG)
-      + " + 激活 " + fmtG(r.actG) + " · U=" + fmtG(r.U);
+    $("vPeakSub").textContent = "当前层工作集 +" + fmtG(r.workG)
+      + " · 未释放的层间 reduce 分片 +" + fmtG(r.stackedG)
+      + " · 激活 +" + fmtG(r.actG);
     $("peakBox").style.opacity = "1";
   } else {
     $("vPeak").textContent = "不适用";
-    $("vPeakSub").textContent = r.lora ? "LoRA 不能按全量 N×12 / 全量 U" : "没有 wrap 单元 U";
+    $("vPeakSub").textContent = r.lora ? "LoRA 不适用全量参数估算" : "当前结构无法估算高峰占用";
     $("peakBox").style.opacity = ".7";
   }
 
@@ -487,23 +497,23 @@ function render() {
   ];
   if (S.cfgName) chips.unshift(`<span class="chip ok">${S.cfgName}</span>`);
   if ((S.model.mtp || 0) > 0) chips.push(`<span class="chip warn">MTP=${S.model.mtp}</span>`);
-  if (r.uneven) chips.push(`<span class="chip warn">P 不能整除 H/V/E</span>`);
+  if (r.uneven) chips.push(`<span class="chip warn">P 无法整除 H/V/E</span>`);
   if (r.lora) chips.push(`<span class="chip bad">LoRA：全量公式不适用</span>`);
   if (S.train.wrap) chips.push(`<span class="chip">整层 wrap</span>`);
-  if (S.train.freezeVisual) chips.push(`<span class="chip">冻视觉</span>`);
-  if (!S.train.recompute) chips.push(`<span class="chip warn">未开 recompute，激活按 L 层估</span>`);
+  if (S.train.freezeVisual) chips.push(`<span class="chip">冻结 ViT</span>`);
+  if (!S.train.recompute) chips.push(`<span class="chip warn">未启用 recompute，激活按 L 层估算</span>`);
   $("chips").innerHTML = chips.join("");
 
   const note = $("note");
   if (r.lora) {
     note.className = "note";
-    note.textContent = "LoRA 只给 adapter 建 Adam，本页按全量参数会高估静态和高峰。";
+    note.textContent = "LoRA 仅对 adapter 建立 Adam 状态；按全量参数估算将高估静态占用与高峰占用。";
   } else if (!showPeak) {
     note.className = "note";
-    note.textContent = "当前结构算不出 wrap 单元 U，只显示静态。";
+    note.textContent = "当前结构无法确定 all-gather 单元体积，仅给出静态占用。";
   } else {
     note.className = "okbox";
-    note.textContent = "静态对 dump allocated。高峰 = 静态 + (2+prefetch)U + reduce 输入 + GMM + L×(reduce分片) + 激活。激活用你填的真实 seq；recompute/offload 时按 1 层 hidden。";
+    note.textContent = "静态占用为参数、梯度与 Adam 状态的常驻显存。高峰占用在此基础上叠加：当前层 all-gather / reduce 工作集、尚未释放的各层 reduce 分片，以及激活（按所填实际序列长度；启用 recompute 或 offload 时约为一层）。";
   }
 
   const peakW = showPeak ? Math.min(100, r.empMaxG / hbm * 100) : 0;
@@ -514,25 +524,25 @@ function render() {
   $("hbmLegend").innerHTML =
     `<span><b style="background:#2e75b6"></b>静态 ${fmtG(r.staticG)}</span>` +
     (showPeak ? `<span><b style="background:#ed7d31"></b>高峰 ${fmtG(r.empMaxG)}</span>` : "") +
-    `<span>相对单卡 ${hbm} GiB</span>`;
+    `<span>相对单卡容量 ${hbm} GiB</span>`;
 
   const rows = [
     ["总参数 N", fmtN(r.N) + "  (" + (r.N / 1e9).toFixed(3) + " B)"],
     ["每卡参数 / 梯度 / Adam", fmtG(r.paramG) + " / " + fmtG(r.gradG) + " / " + fmtG(r.adamG) + " GiB"],
     ["full / GDN 层", r.nFull + " / " + r.nGdn],
-    ["P_dense / P_expert", r.Pdense + " / " + r.Pexpert],
-    ["静态相对单卡", fmtG(hbm - r.staticG) + " GiB"],
+    ["P / EP", r.Pdense + " / " + r.Pexpert],
+    ["静态相对单卡容量的余量", fmtG(hbm - r.staticG) + " GiB"],
   ];
   if (showPeak) {
-    rows.push(["wrap 单元 U", fmtG(r.U) + " GiB" + (r.EP > 1 ? "（已 ÷EP）" : "")]);
-    rows.push(["并发工作集 (2+prefetch)U + reduce + GMM", fmtG(r.workG) + " GiB"]);
-    rows.push(["堆积 L×2U/P（reduce 分片）", fmtG(r.stackedG) + " GiB"]);
-    rows.push(["激活（" + r.liveLayers + " 层 × " + r.tokens + " token）", fmtG(r.actG) + " GiB"]);
-    rows.push(["超额合计", fmtG(r.empExcess) + " GiB"]);
-    rows.push(["高峰相对单卡", fmtG(hbm - r.empMaxG) + " GiB"]);
+    rows.push(["all-gather 单元体积 U（bf16）", fmtG(r.U) + " GiB" + (r.EP > 1 ? "（已按 EP 切分）" : "")]);
+    rows.push(["当前层工作集（通信与未分片权重）", fmtG(r.workG) + " GiB"]);
+    rows.push(["未释放的层间 reduce 分片", fmtG(r.stackedG) + " GiB"]);
+    rows.push(["激活（约 " + r.liveLayers + " 层，" + r.tokens + " token）", fmtG(r.actG) + " GiB"]);
+    rows.push(["高峰相对静态的增量", fmtG(r.empExcess) + " GiB"]);
+    rows.push(["高峰相对单卡容量的余量", fmtG(hbm - r.empMaxG) + " GiB"]);
   }
   if (r.uneven) {
-    rows.push(["分片对齐", "P=" + r.P + " 除不尽时各卡会不均，公式是均值"]);
+    rows.push(["分片对齐", "P=" + r.P + " 无法整除时各卡分片不均，公式给出均值"]);
   }
   $("breakBody").innerHTML = rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
 }
@@ -543,8 +553,8 @@ function applyPreset() {
   S.model = { ...DEFAULT_35B, layerTypes: defaultLayerTypes(20, 4) };
   S.train = defaultTrain();
   S.cfgName = "";
-  $("fnCfg").textContent = "预置：Qwen3.6-35B-A3B 20L 结构";
-  $("cfgHint").textContent = "MTP 已按训练常用值设为 0；可在下方改。";
+  $("fnCfg").textContent = "预置：Qwen3.6-35B-A3B，20 层结构";
+  $("cfgHint").textContent = "MTP 已按常用训练配置设为 0，可在下方修改。";
   $("btnPreset").classList.add("active");
   setErr("");
   writeForm();
@@ -554,14 +564,14 @@ function applyPreset() {
 function onCfgText(text, name) {
   const cfg = JSON.parse(text);
   const m = parseConfig(cfg);
-  if (!m.hidden || !m.layers) throw new Error("未读到 hidden_size / num_hidden_layers");
+  if (!m.hidden || !m.layers) throw new Error("未能读取 hidden_size / num_hidden_layers");
   S.model = { ...DEFAULT_35B, ...m };
   if (!S.model.layerTypes.length) S.model.layerTypes = defaultLayerTypes(S.model.layers, S.model.fullInterval || 4);
   S.train.mtp = m.mtp || 0;
   S.model.mtp = S.train.mtp;
   S.cfgName = name;
   $("fnCfg").textContent = name + " · L=" + m.layers + " · " + (m.arch || "");
-  $("cfgHint").textContent = "结构已加载。HF config 若 MTP=1，可在「MTP 层」改成 0。";
+  $("cfgHint").textContent = "结构已加载。若 HF config 中 MTP 为 1，请在「MTP 层」中改为 0。";
   $("btnPreset").classList.remove("active");
   setErr("");
   writeForm();
