@@ -103,6 +103,11 @@
     .part-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
     .part-h b { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
     .part-h .g { font: 650 14px var(--mono); }
+    .eq {
+      margin: 8px 0 0; padding: 8px 10px; border-radius: 8px;
+      background: #f3f7f5; border: 1px solid #e1eae5;
+      font: 600 13px/1.45 var(--mono); color: #1b2420; word-break: break-all;
+    }
     .sub { margin: 8px 0 0; padding: 0; list-style: none; }
     .sub li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 6px 0; font-size: 13px; }
     .sub .fml { color: var(--muted); font-family: var(--mono); font-size: 11px; }
@@ -514,28 +519,39 @@ function render() {
 
   $("mapBody").innerHTML = [
     partBlock("权重", COLORS.weight, r.paramG,
-      li("每卡参数分片", `N / P × 2 B　N=${fmtN(r.N)}`, fmtG(r.paramG) + " GiB")),
+      `N / P × 2 B`,
+      li("每卡参数分片", `N=${fmtN(r.N)}，P=${r.P}`, fmtG(r.paramG) + " GiB")),
     partBlock("梯度", COLORS.grad, r.gradG,
+      `N / P × 2 B  +  L × U / P`,
       li("静态 bf16 梯度", `N / P × 2 B`, fmtG(r.gradStaticG) + " GiB") +
       li("expert reduce 升精差", `L × U / P　只加 fp32−bf16，避免与静态梯度重复`, fmtG(r.upgradeG) + " GiB")),
     partBlock("优化器", COLORS.adam, r.adamG,
-      li("AdamW 一阶 + 二阶", `N / P × 8 B　两份 fp32`, fmtG(r.adamG) + " GiB")),
+      `N / P × 8 B`,
+      li("AdamW 一阶 + 二阶", `两份 fp32：exp_avg + exp_avg_sq`, fmtG(r.adamG) + " GiB")),
     partBlock("激活值", COLORS.act, r.actG,
-      li("residual hidden", `${r.liveLayers} 层 × B_fwd × S × H × 2　B_fwd=${r.samplesFwd}, S=${r.seq}, H=${r.H}`, fmtG(r.hiddenG * r.liveLayers) + " GiB") +
-      (r.skipG > 0 ? li("skip_gdn 中间结果", `n_GDN × tokens × (2d_k+d_v) × 2　offload 关闭时计入`, fmtG(r.skipG) + " GiB") : "")),
+      r.skipG > 0
+        ? `liveLayers × B_fwd × S × H × 2  +  n_GDN × tokens × (2d_k+d_v) × 2`
+        : `liveLayers × B_fwd × S × H × 2`,
+      li("residual hidden", `liveLayers=${r.liveLayers}，B_fwd=${r.samplesFwd}，S=${r.seq}，H=${r.H}`, fmtG(r.hiddenG * r.liveLayers) + " GiB") +
+      (r.skipG > 0 ? li("skip_gdn 中间结果", `offload 关闭时计入 NPU`, fmtG(r.skipG) + " GiB") : "")),
     partBlock("动态内存", COLORS.dyn, r.dynG,
+      `(2 + prefetch)U  +  2U  +  GMM`,
       li("all-gather 输出", `U`, fmtG(r.agG) + " GiB") +
       li("copy_out 未分片参数", `U`, fmtG(r.copyG) + " GiB") +
       li("prefetch all-gather", `prefetch × U　prefetch=${r.prefetch}`, fmtG(r.prefG) + " GiB") +
       li("foreach_reduce 输入", `U × 4/2 = 2U　fp32、未切分`, fmtG(r.reduceInG) + " GiB") +
       li("GMM grad_weight", r.gmmG ? `U` : `未启用`, fmtG(r.gmmG) + " GiB")),
     partBlock("HCCL", COLORS.hccl, r.hcclG,
-      li("通信域 × 收发缓冲", `n_comm × ${r.hcclMB} MB × 2　n_comm=${r.nComm}（FSDP/DP${r.EP > 1 ? " + EP" : ""}${r.CP > 1 ? " + CP" : ""}）`, fmtG(r.hcclG) + " GiB")),
+      `n_comm × HCCL_BUFFSIZE × 2`,
+      li("通信域 × 收发缓冲", `n_comm=${r.nComm}（FSDP/DP${r.EP > 1 ? " + EP" : ""}${r.CP > 1 ? " + CP" : ""}），BUFFSIZE=${r.hcclMB} MB`, fmtG(r.hcclG) + " GiB")),
     partBlock("内存碎片", COLORS.frag, r.fragG,
-      li("caching allocator 空洞", `预估，不在 pickle allocated 里`, fmtG(r.fragG) + " GiB")),
+      `1 GiB（预估）`,
+      li("caching allocator 空洞", `不在 pickle allocated 里`, fmtG(r.fragG) + " GiB")),
     partBlock("PTA", COLORS.pta, r.ptaG,
+      `1 GiB（预估）`,
       li("PyTorch Ascend 运行时 / workspace", `预估`, fmtG(r.ptaG) + " GiB")),
     partBlock("Device OS", COLORS.os, r.osG,
+      `3.5 GiB（预估）`,
       li("驱动与设备侧 OS 预留", `npu-smi 可见、torch allocated 不可见`, fmtG(r.osG) + " GiB")),
   ].join("");
 
@@ -544,8 +560,8 @@ function render() {
     " 对应 dump/形状加总；整卡再加 HCCL / 碎片 / PTA / Device OS。";
 }
 
-function partBlock(name, color, g, inner) {
-  return `<div class="part"><div class="part-h"><div><b style="background:${color}"></b>${name}</div><div class="g">${fmtG(g)} GiB</div></div><ul class="sub">${inner}</ul></div>`;
+function partBlock(name, color, g, eq, inner) {
+  return `<div class="part"><div class="part-h"><div><b style="background:${color}"></b>${name}</div><div class="g">${fmtG(g)} GiB</div></div><div class="eq">${eq}</div><ul class="sub">${inner}</ul></div>`;
 }
 
 function setErr(msg) { $("err").textContent = msg || ""; }
