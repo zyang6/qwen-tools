@@ -125,7 +125,7 @@
   <header>
     <a class="home" href="./">← QWEN 小工具</a>
     <h1>FSDP 显存建模</h1>
-    <p>整卡规划口径：权重 + 梯度（含 reduce 升精）+ 优化器 + 激活 + 动态工作集 + HCCL + 碎片 + PTA + Device OS</p>
+    <p>整卡规划口径：权重 + 梯度（fp32 reduce 时含升精差）+ 优化器 + 激活 + 动态工作集 + HCCL + 碎片 + PTA + Device OS</p>
   </header>
 
   <div class="app">
@@ -159,9 +159,15 @@
               <option value="1">整层 layers.*</option>
             </select>
           </label>
+          <label class="f">reduce_dtype
+            <select id="ovReduce">
+              <option value="4">fp32</option>
+              <option value="2">bf16</option>
+            </select>
+          </label>
           <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="1" step="1" /></label>
         </div>
-        <p class="hint" style="margin:8px 0 0;">param=bf16 · reduce=fp32 · AdamW。EP/CP&gt;1 各加一个 HCCL 通信域。</p>
+        <p class="hint" style="margin:8px 0 0;">param=bf16 · AdamW。reduce 为 fp32 时，梯度再加一份 expert 的 bf16 升精差 L×U/P；为 bf16 时不加。EP/CP&gt;1 各加一个 HCCL 通信域。</p>
       </section>
 
       <section class="card">
@@ -328,7 +334,9 @@ function compute(model, train) {
   const CP = Math.max(p.CP || 1, 1);
   const Pdense = P;
   const Pexpert = EP > 1 ? EP : P;
-  const bw = 2, bg = 2, nAdam = 2, bAdam = 4, bReduce = 4;
+  const bw = 2, bg = 2, nAdam = 2, bAdam = 4;
+  const bReduce = p.bReduce === 2 ? 2 : 4;
+  const reduceScale = bw ? bReduce / bw : 1;
   const mtp = p.mtp || 0;
 
   const embed = V * H;
@@ -394,10 +402,10 @@ function compute(model, train) {
   const agG = U;
   const copyG = U;
   const prefG = prefetch * U;
-  const reduceInG = U * (bReduce / bw);
+  const reduceInG = U * reduceScale;
   const gmmG = (p.gmm && E > 0 && !p.wrap) ? U : 0;
   const dynG = agG + copyG + prefG + reduceInG + gmmG;
-  const upgradeG = E > 0 ? (L + mtp) * U / P : 0;
+  const upgradeG = (E > 0 && reduceScale > 1) ? (L + mtp) * U / P : 0;
   const gradG = gradStaticG + upgradeG;
 
   const samplesFwd = (p.chunk || 0) > 0 ? p.chunk : Math.max(p.mbs || 1, 1);
@@ -424,7 +432,7 @@ function compute(model, train) {
     nFull, nGdn, U, agG, copyG, prefG, reduceInG, gmmG, dynG, actG, skipG, hiddenG,
     hcclG, nComm, hcclMB, fragG, ptaG, osG, peakG, deviceG,
     nExpert, vit, L, H, V, E, mbs: p.mbs, seq: p.seq, chunk: p.chunk, prefetch,
-    samplesFwd, tokens, liveLayers, mtp, wrap: !!p.wrap, bw, bReduce,
+    samplesFwd, tokens, liveLayers, mtp, wrap: !!p.wrap, bw, bReduce, reduceScale,
   };
 }
 
@@ -434,6 +442,7 @@ function readForm() {
   t.EP = Math.max(1, Number($("ovEP").value) || t.EP);
   t.CP = Math.max(1, Number($("ovCP").value) || t.CP);
   t.wrap = Number($("ovWrap").value) ? 1 : 0;
+  t.bReduce = Number($("ovReduce").value) === 2 ? 2 : 4;
   t.hbm = Math.max(1, Number($("ovHbm").value) || t.hbm);
   t.hcclMB = Math.max(1, Number($("ovHccl").value) || t.hcclMB);
   t.mtp = Math.max(0, Number($("ovMtp").value) || 0);
@@ -455,6 +464,7 @@ function writeForm() {
   $("ovEP").value = t.EP;
   $("ovCP").value = t.CP;
   $("ovWrap").value = String(t.wrap || 0);
+  $("ovReduce").value = String(t.bReduce === 2 ? 2 : 4);
   $("ovHbm").value = t.hbm;
   $("ovHccl").value = t.hcclMB;
   $("ovMtp").value = t.mtp;
@@ -506,7 +516,7 @@ function render() {
     `<span class="chip">${fam.label}</span>`,
     `<span class="chip">${r.L}L · P=${r.P} · EP=${r.EP} · CP=${r.CP}</span>`,
     `<span class="chip">seq=${r.seq} mbs=${r.mbs} chunk=${r.chunk}</span>`,
-    `<span class="chip">bf16 · AdamW · reduce fp32</span>`,
+    `<span class="chip">bf16 · AdamW · reduce ${r.bReduce === 2 ? "bf16" : "fp32"}</span>`,
   ];
   if (S.cfgName) chips.unshift(`<span class="chip ok">${S.cfgName}</span>`);
   if (r.mtp > 0) chips.push(`<span class="chip warn">MTP=${r.mtp}</span>`);
@@ -522,9 +532,11 @@ function render() {
       `N / P × 2 B`,
       li("每卡参数分片", `N=${fmtN(r.N)}，P=${r.P}`, fmtG(r.paramG) + " GiB")),
     partBlock("梯度", COLORS.grad, r.gradG,
-      `N / P × 2 B  +  L × U / P`,
+      r.reduceScale > 1 ? `N / P × 2 B  +  L × U / P` : `N / P × 2 B`,
       li("静态 bf16 梯度", `N / P × 2 B`, fmtG(r.gradStaticG) + " GiB") +
-      li("expert reduce 升精差", `L × U / P　只加 fp32−bf16，避免与静态梯度重复`, fmtG(r.upgradeG) + " GiB")),
+      li("expert reduce 升精差",
+        r.reduceScale > 1 ? `L × U / P　fp32 reduce 相对静态 bf16 多出来的一份` : `reduce 与 param 同为 bf16，升精差为 0`,
+        fmtG(r.upgradeG) + " GiB")),
     partBlock("优化器", COLORS.adam, r.adamG,
       `N / P × 8 B`,
       li("AdamW 一阶 + 二阶", `两份 fp32：exp_avg + exp_avg_sq`, fmtG(r.adamG) + " GiB")),
@@ -535,11 +547,13 @@ function render() {
       li("residual hidden", `liveLayers=${r.liveLayers}，B_fwd=${r.samplesFwd}，S=${r.seq}，H=${r.H}`, fmtG(r.hiddenG * r.liveLayers) + " GiB") +
       (r.skipG > 0 ? li("skip_gdn 中间结果", `offload 关闭时计入 NPU`, fmtG(r.skipG) + " GiB") : "")),
     partBlock("动态内存", COLORS.dyn, r.dynG,
-      `(2 + prefetch)U  +  2U  +  GMM`,
+      `(2 + prefetch)U  +  ${r.reduceScale}U  +  GMM`,
       li("all-gather 输出", `U`, fmtG(r.agG) + " GiB") +
       li("copy_out 未分片参数", `U`, fmtG(r.copyG) + " GiB") +
       li("prefetch all-gather", `prefetch × U　prefetch=${r.prefetch}`, fmtG(r.prefG) + " GiB") +
-      li("foreach_reduce 输入", `U × 4/2 = 2U　fp32、未切分`, fmtG(r.reduceInG) + " GiB") +
+      li("foreach_reduce 输入",
+        r.reduceScale > 1 ? `U × 4/2 = 2U　fp32、未切分` : `U　bf16、未切分`,
+        fmtG(r.reduceInG) + " GiB") +
       li("GMM grad_weight", r.gmmG ? `U` : `未启用`, fmtG(r.gmmG) + " GiB")),
     partBlock("HCCL", COLORS.hccl, r.hcclG,
       `n_comm × HCCL_BUFFSIZE × 2`,
