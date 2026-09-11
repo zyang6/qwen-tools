@@ -417,8 +417,9 @@ function compute(model, train) {
   const dynG = agG + copyG + prefG + reduceInG + gmmG;
   // fp32 reduce_output 与静态 bf16 梯度是不同张量，高峰叠整份 2U/P；bf16 reduce 即静态梯度，不再加
   const nPile = L + mtp;
-  const pileG = reduceScale > 1 ? nPile * (Ufull * reduceScale) / P : 0;
-  const pileEachG = nPile ? pileG / nPile : 0;
+  const pileRawG = nPile * (Ufull * reduceScale) / P;
+  const pileG = reduceScale > 1 ? pileRawG : 0;
+  const pileEachG = nPile ? pileRawG / nPile : 0;
 
   const samplesFwd = (p.chunk || 0) > 0 ? p.chunk : Math.max(p.mbs || 1, 1);
   const seq = Math.max(p.seq || 1, 1);
@@ -452,7 +453,7 @@ function compute(model, train) {
   return {
     N, P, EP, CP, ulysses, ring, perCard, paramG, gradStaticG, adamG, staticG,
     nFull, nGdn, U, Ufull, agG, copyG, prefG, reduceInG, gmmG, dynG,
-    pileG, pileEachG, nPile, actG, skipG, dispatchG, hiddenG,
+    pileG, pileRawG, pileEachG, nPile, actG, skipG, dispatchG, hiddenG,
     hcclG, nComm, hcclMB, fragG, ptaG, osG, peakG, deviceG,
     nExpert, vit, L, H, V, E, I, mbs: p.mbs, seq, chunk: p.chunk, prefetch,
     samplesFwd, tokens, seqLocal, liveLayers, mtp, wrap: !!p.wrap, bw, bReduce, reduceScale,
@@ -566,7 +567,7 @@ function render() {
 
   const pileEq = r.reduceScale > 1
     ? `L × 2U / P　每份 ${fmtG(r.pileEachG * 1024)} MiB`
-    : `reduce=bf16：规约分片即静态梯度，不再另加`;
+    : `L × U / P = ${fmtG(r.pileRawG)} GiB，已计入「梯度」，此处 +0`;
   const actEq = r.CP > 1
     ? `liveLayers × B_fwd × (S/CP) × H × 2`
     : `liveLayers × B_fwd × S × H × 2`;
@@ -603,7 +604,10 @@ function render() {
       li("每卡参数分片", `N=${fmtN(r.N)}，P=${r.P}；EDP=1 时 EP 不改静态`, fmtG(r.paramG) + " GiB")),
     partBlock("梯度", COLORS.grad, r.gradStaticG,
       `N / P × 2 B`,
-      li("静态 bf16 梯度", `与规约分片的 fp32 reduce-scatter 输出是不同张量`, fmtG(r.gradStaticG) + " GiB")),
+      li("静态 bf16 梯度", r.reduceScale > 1
+        ? `与规约分片的 fp32 reduce-scatter 输出是不同张量`
+        : `bf16 reduce 时 expert 的 L×U/P 规约输出就是这份梯度，不另加`,
+        fmtG(r.gradStaticG) + " GiB")),
     partBlock("优化器", COLORS.adam, r.adamG,
       `N / P × 8 B`,
       li("AdamW 一阶 + 二阶", `两份 fp32：exp_avg + exp_avg_sq`, fmtG(r.adamG) + " GiB")),
@@ -620,9 +624,9 @@ function render() {
       pileEq,
       li("各层 reduce-scatter 输出",
         r.reduceScale > 1
-          ? `上限 ${r.nPile} 份 × 2U/P；EDP=1 时不随 EP 缩小`
-          : `reduce 与 param 同为 bf16，已计入静态梯度`,
-        fmtG(r.pileG) + " GiB")),
+          ? `上限 ${r.nPile} 份 × 2U/P；fp32 输出与静态 bf16 梯度同时活着`
+          : `每份 U/P = ${fmtG(r.pileEachG * 1024)} MiB，共 L×U/P = ${fmtG(r.pileRawG)} GiB；dtype 与 param.grad 相同，已在「梯度」里`,
+        r.reduceScale > 1 ? fmtG(r.pileG) + " GiB" : "+0（已计入梯度）"),
     partBlock("激活值", COLORS.act, r.actG,
       actEq,
       li("residual hidden", `liveLayers=${r.liveLayers}，B_fwd=${r.samplesFwd}，S_local=${r.seqLocal}（S=${r.seq} / CP=${r.CP}），H=${r.H}`, fmtG(r.hiddenG * r.liveLayers) + " GiB") +
