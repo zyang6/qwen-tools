@@ -126,7 +126,7 @@
   <header>
     <a class="home" href="./">← QWEN 小工具</a>
     <h1>FSDP 显存建模</h1>
-    <p>与入门文档同一套公式：静态 N/P×12 + 4.1 的 6×(U/EP) + 4.2 堆积 L×2U/P + 激活 B×(S/CP)×H + 运行时预留</p>
+    <p>与入门文档同一套公式：静态 N/P×12 + 动态内存 6×(U/EP) + 规约分片 L×2U/P + 激活 B×(S/CP)×H + 运行时预留</p>
   </header>
 
   <div class="app">
@@ -169,7 +169,7 @@
           </label>
           <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="1" step="1" /></label>
         </div>
-        <p class="hint" style="margin:8px 0 0;">param=bf16 · AdamW · EDP=1。静态始终 N/P，EP 只把 4.1 的 U 变成 U/EP，不把 expert 改成只 ÷EP。CP=Ulysses×Ring，激活用 S/CP。fp32 reduce 的 4.2 是 L×2U/P 整份堆积，不是升精差 L×U/P。</p>
+        <p class="hint" style="margin:8px 0 0;">param=bf16 · AdamW · EDP=1。静态始终 N/P，EP 只把动态内存的 U 变成 U/EP，不把 expert 改成只 ÷EP。CP=Ulysses×Ring，激活用 S/CP。fp32 reduce 的规约分片是 L×2U/P 整份，不是升精差 L×U/P。</p>
       </section>
 
       <section class="card">
@@ -454,9 +454,9 @@ function compute(model, train) {
     nFull, nGdn, U, Ufull, agG, copyG, prefG, reduceInG, gmmG, dynG,
     pileG, pileEachG, nPile, actG, skipG, dispatchG, hiddenG,
     hcclG, nComm, hcclMB, fragG, ptaG, osG, peakG, deviceG,
-    nExpert, vit, L, H, V, E, mbs: p.mbs, seq, chunk: p.chunk, prefetch,
+    nExpert, vit, L, H, V, E, I, mbs: p.mbs, seq, chunk: p.chunk, prefetch,
     samplesFwd, tokens, seqLocal, liveLayers, mtp, wrap: !!p.wrap, bw, bReduce, reduceScale,
-    topk, warns,
+    topk, warns, gateUp, down, expertNumel, unitNumel, moeOther, attnAvg,
   };
 }
 
@@ -510,8 +510,8 @@ function partsOf(r) {
     { id: "weight", name: "权重", g: r.paramG, color: COLORS.weight },
     { id: "grad", name: "梯度", g: r.gradStaticG, color: COLORS.grad },
     { id: "adam", name: "优化器", g: r.adamG, color: COLORS.adam },
-    { id: "dyn", name: "4.1 当前层", g: r.dynG, color: COLORS.dyn },
-    { id: "pile", name: "4.2 堆积", g: r.pileG, color: COLORS.pile },
+    { id: "dyn", name: "动态内存", g: r.dynG, color: COLORS.dyn },
+    { id: "pile", name: "规约分片", g: r.pileG, color: COLORS.pile },
     { id: "act", name: "激活值", g: r.actG, color: COLORS.act },
     { id: "hccl", name: "HCCL", g: r.hcclG, color: COLORS.hccl },
     { id: "frag", name: "内存碎片", g: r.fragG, color: COLORS.frag },
@@ -536,7 +536,7 @@ function render() {
   ).join("");
   $("summary").innerHTML = [
     { n: "静态", v: r.staticG, p: "N/P × 12" },
-    { n: "形状高峰", v: r.peakG, p: "静态 + 4.1 + 4.2 + 激活" },
+    { n: "形状高峰", v: r.peakG, p: "静态 + 动态内存 + 规约分片 + 激活" },
     { n: "整卡", v: r.deviceG, p: "高峰 + HCCL/碎片/PTA/OS" },
   ].map((x) =>
     `<div class="blk"><div class="n">${x.n}</div><div class="v">${fmtG(x.v)} GiB</div><div class="p">${x.p}</div></div>`
@@ -557,6 +557,7 @@ function render() {
   if (S.train.wrap) chips.push(`<span class="chip">整层 wrap</span>`);
   if (S.train.freezeVisual) chips.push(`<span class="chip">冻视觉</span>`);
   if (r.EP > 1) chips.push(`<span class="chip">U_EP=U/${r.EP}</span>`);
+  chips.push(`<span class="chip">U=${fmtG(r.Ufull)} GiB</span>`);
   $("chips").innerHTML = chips.join("");
   setErr((r.warns || []).join("；"));
 
@@ -565,7 +566,7 @@ function render() {
 
   const pileEq = r.reduceScale > 1
     ? `L × 2U / P　每份 ${fmtG(r.pileEachG * 1024)} MiB`
-    : `reduce=bf16：堆积即静态梯度，不再另加`;
+    : `reduce=bf16：规约分片即静态梯度，不再另加`;
   const actEq = r.CP > 1
     ? `liveLayers × B_fwd × (S/CP) × H × 2`
     : `liveLayers × B_fwd × S × H × 2`;
@@ -573,17 +574,40 @@ function render() {
     ? `(2 + prefetch)×(U/EP)  +  ${r.reduceScale}×(U/EP)  +  GMM`
     : `(2 + prefetch)U  +  ${r.reduceScale}U  +  GMM`;
 
+  const uEq = (!r.wrap && r.E > 0)
+    ? `(gate_up + down) × 2 / 1024³`
+    : `一层 numel × 2 / 1024³`;
+  let uInner;
+  if (!r.wrap && r.E > 0) {
+    uInner =
+      li("gate_up", `E × H × 2I = ${r.E} × ${r.H} × ${2 * r.I} = ${fmtN(r.gateUp)}`, fmtN(r.gateUp)) +
+      li("down", `E × I × H = ${r.E} × ${r.I} × ${r.H} = ${fmtN(r.down)}`, fmtN(r.down)) +
+      li("numel", `gate_up + down = ${fmtN(r.expertNumel)}`, fmtN(r.expertNumel)) +
+      li("U（bf16 全量）", `${fmtN(r.expertNumel)} × 2 / 1024³`, fmtG(r.Ufull) + " GiB");
+  } else {
+    uInner = li("一层 wrap 单元", `numel = ${fmtN(r.unitNumel)}，× 2 B`, fmtG(r.Ufull) + " GiB");
+    if (r.E > 0) {
+      uInner += li("其中 gate_up + down", `E×H×2I + E×I×H = ${fmtN(r.expertNumel)}`, fmtG(r.expertNumel * r.bw / GIB) + " GiB");
+    }
+  }
+  if (r.EP > 1) {
+    uInner += li("U_EP", `U / EP = ${fmtG(r.Ufull)} / ${r.EP}，动态内存按这份计`, fmtG(r.U) + " GiB");
+  }
+
   $("mapBody").innerHTML = [
+    partBlock("U（FSDP wrap 单元）", COLORS.dyn, r.Ufull,
+      uEq,
+      uInner),
     partBlock("权重", COLORS.weight, r.paramG,
       `N / P × 2 B`,
       li("每卡参数分片", `N=${fmtN(r.N)}，P=${r.P}；EDP=1 时 EP 不改静态`, fmtG(r.paramG) + " GiB")),
     partBlock("梯度", COLORS.grad, r.gradStaticG,
       `N / P × 2 B`,
-      li("静态 bf16 梯度", `与 4.2 的 fp32 reduce 输出是不同张量`, fmtG(r.gradStaticG) + " GiB")),
+      li("静态 bf16 梯度", `与规约分片的 fp32 reduce-scatter 输出是不同张量`, fmtG(r.gradStaticG) + " GiB")),
     partBlock("优化器", COLORS.adam, r.adamG,
       `N / P × 8 B`,
       li("AdamW 一阶 + 二阶", `两份 fp32：exp_avg + exp_avg_sq`, fmtG(r.adamG) + " GiB")),
-    partBlock("4.1 当前层", COLORS.dyn, r.dynG,
+    partBlock("动态内存", COLORS.dyn, r.dynG,
       dynEq,
       li("all-gather 输出", r.EP > 1 ? `U/EP　U=${fmtG(r.Ufull)}` : `U`, fmtG(r.agG) + " GiB") +
       li("copy_out 未分片参数", r.EP > 1 ? `U/EP` : `U`, fmtG(r.copyG) + " GiB") +
@@ -592,7 +616,7 @@ function render() {
         r.reduceScale > 1 ? `${r.reduceScale}×U_EP　fp32、未切分` : `U_EP　bf16、未切分`,
         fmtG(r.reduceInG) + " GiB") +
       li("GMM grad_weight", r.gmmG ? `U_EP` : `未启用`, fmtG(r.gmmG) + " GiB")),
-    partBlock("4.2 堆积", COLORS.pile, r.pileG,
+    partBlock("规约分片", COLORS.pile, r.pileG,
       pileEq,
       li("各层 reduce-scatter 输出",
         r.reduceScale > 1
@@ -619,9 +643,9 @@ function render() {
   ].join("");
 
   $("mapFoot").textContent =
-    "U(全量) = " + fmtG(r.Ufull) + " GiB，U_EP = U/EP = " + fmtG(r.U) +
-    " GiB。高峰 " + fmtG(r.peakG) + " = 静态 " + fmtG(r.staticG) +
-    " + 4.1 " + fmtG(r.dynG) + " + 4.2 " + fmtG(r.pileG) +
+    "U 是最大 wrap 单元的全量 bf16（嵌套时 = 一层 expert 的 gate_up+down），不是每卡分片。" +
+    " 动态内存与规约分片都按 U 计份。高峰 " + fmtG(r.peakG) + " = 静态 " + fmtG(r.staticG) +
+    " + 动态内存 " + fmtG(r.dynG) + " + 规约分片 " + fmtG(r.pileG) +
     " + 激活 " + fmtG(r.actG) + "；整卡再加 HCCL / 碎片 / PTA / Device OS。";
 }
 
