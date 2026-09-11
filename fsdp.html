@@ -626,7 +626,7 @@ function render() {
         r.reduceScale > 1
           ? `上限 ${r.nPile} 份 × 2U/P；fp32 输出与静态 bf16 梯度同时活着`
           : `每份 U/P = ${fmtG(r.pileEachG * 1024)} MiB，共 L×U/P = ${fmtG(r.pileRawG)} GiB；dtype 与 param.grad 相同，已在「梯度」里`,
-        r.reduceScale > 1 ? fmtG(r.pileG) + " GiB" : "+0（已计入梯度）"),
+        r.reduceScale > 1 ? fmtG(r.pileG) + " GiB" : "+0（已计入梯度）")),
     partBlock("激活值", COLORS.act, r.actG,
       actEq,
       li("residual hidden", `liveLayers=${r.liveLayers}，B_fwd=${r.samplesFwd}，S_local=${r.seqLocal}（S=${r.seq} / CP=${r.CP}），H=${r.H}`, fmtG(r.hiddenG * r.liveLayers) + " GiB") +
