@@ -31,6 +31,7 @@
       --c-f: #9aa5ab;
       --c-p: #6c8ead;
       --c-os: #5c6b73;
+      --c-pile: #c47c9a;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: var(--bg); }
@@ -125,7 +126,7 @@
   <header>
     <a class="home" href="./">← QWEN 小工具</a>
     <h1>FSDP 显存建模</h1>
-    <p>整卡规划口径：权重 + 梯度（fp32 reduce 时含升精差）+ 优化器 + 激活 + 动态工作集 + HCCL + 碎片 + PTA + Device OS</p>
+    <p>与入门文档同一套公式：静态 N/P×12 + 4.1 的 6×(U/EP) + 4.2 堆积 L×2U/P + 激活 B×(S/CP)×H + 运行时预留</p>
   </header>
 
   <div class="app">
@@ -151,7 +152,8 @@
         <div class="fields">
           <label class="f">FSDP 卡数 P<input id="ovP" type="number" min="1" step="1" /></label>
           <label class="f">EP<input id="ovEP" type="number" min="1" step="1" /></label>
-          <label class="f">CP / Ulysses<input id="ovCP" type="number" min="1" step="1" /></label>
+          <label class="f">Ulysses CP<input id="ovCP" type="number" min="1" step="1" /></label>
+          <label class="f">Ring CP<input id="ovRing" type="number" min="1" step="1" /></label>
           <label class="f">单卡容量 GiB<input id="ovHbm" type="number" min="1" step="1" /></label>
           <label class="f">Wrap 粒度
             <select id="ovWrap">
@@ -167,7 +169,7 @@
           </label>
           <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="1" step="1" /></label>
         </div>
-        <p class="hint" style="margin:8px 0 0;">param=bf16 · AdamW。reduce 为 fp32 时，梯度再加一份 expert 的 bf16 升精差 L×U/P；为 bf16 时不加。EP/CP&gt;1 各加一个 HCCL 通信域。</p>
+        <p class="hint" style="margin:8px 0 0;">param=bf16 · AdamW · EDP=1。静态始终 N/P，EP 只把 4.1 的 U 变成 U/EP，不把 expert 改成只 ÷EP。CP=Ulysses×Ring，激活用 S/CP。fp32 reduce 的 4.2 是 L×2U/P 整份堆积，不是升精差 L×U/P。</p>
       </section>
 
       <section class="card">
@@ -211,6 +213,7 @@
         <div class="muted" id="vTotalSub">整卡规划 · npu-smi Used 口径</div>
         <div class="bar" id="hbmBar" style="margin-top:14px;"></div>
         <div class="muted" id="vRemain"></div>
+        <div class="blocks" id="summary" style="margin-top:14px;"></div>
       </section>
 
       <section class="card">
@@ -232,7 +235,8 @@ const GIB = 1024 ** 3;
 const MIB = 1024 ** 2;
 const COLORS = {
   weight: "var(--c-w)", grad: "var(--c-g)", adam: "var(--c-o)", act: "var(--c-a)",
-  dyn: "var(--c-d)", hccl: "var(--c-h)", frag: "var(--c-f)", pta: "var(--c-p)", os: "var(--c-os)",
+  dyn: "var(--c-d)", pile: "var(--c-pile)", hccl: "var(--c-h)", frag: "var(--c-f)",
+  pta: "var(--c-p)", os: "var(--c-os)",
 };
 
 const DEFAULT_35B = {
@@ -243,6 +247,7 @@ const DEFAULT_35B = {
   patch: 16, tPatch: 2, inCh: 3, merge: 2, nPos: 2304,
   tie: false, attnGate: true, layerTypes: [],
   arch: "Qwen3_5MoeForConditionalGeneration",
+  topk: 8,
 };
 
 function defaultLayerTypes(L, iv) {
@@ -251,7 +256,7 @@ function defaultLayerTypes(L, iv) {
 
 function defaultTrain() {
   return {
-    P: 8, EP: 1, CP: 1, bw: 2, nAdam: 2, bAdam: 4, bReduce: 4,
+    P: 8, EP: 1, CP: 1, ring: 1, bw: 2, nAdam: 2, bAdam: 4, bReduce: 4,
     mbs: 4, seq: 512, chunk: 2, prefetch: 1, wrap: 0,
     freezeVisual: false, recompute: true, offload: true,
     skipGdn: true, gmm: true, hbm: 64, mtp: 0, hcclMB: 200,
@@ -312,6 +317,7 @@ function parseConfig(cfg) {
     layerTypes: text.layer_types || [],
     arch: (cfg.architectures || [cfg.model_type || ""]).join(", "),
     modelType: cfg.model_type || text.model_type || "",
+    topk: pick(text, ["num_experts_per_tok"], 8) || 8,
   };
 }
 
@@ -331,13 +337,14 @@ function compute(model, train) {
   const V = p.vocab, H = p.hidden, L = p.layers, E = p.experts, I = p.moeI;
   const P = Math.max(p.P || 1, 1);
   const EP = Math.max(p.EP || 1, 1);
-  const CP = Math.max(p.CP || 1, 1);
-  const Pdense = P;
-  const Pexpert = EP > 1 ? EP : P;
+  const ulysses = Math.max(p.CP || 1, 1);
+  const ring = Math.max(p.ring || 1, 1);
+  const CP = ulysses * ring;
   const bw = 2, bg = 2, nAdam = 2, bAdam = 4;
   const bReduce = p.bReduce === 2 ? 2 : 4;
   const reduceScale = bw ? bReduce / bw : 1;
   const mtp = p.mtp || 0;
+  const topk = Math.max(p.topk || 8, 1);
 
   const embed = V * H;
   const lm = p.tie ? 0 : V * H;
@@ -387,16 +394,19 @@ function compute(model, train) {
 
   const N = textN + vit;
   const nExpert = E > 0 ? (L + mtp) * (gateUp + down) : 0;
-  const perCard = (N - nExpert) / Pdense + nExpert / Math.max(Pexpert, 1);
+  // EDP=1：EP 先 Shard(0) 再 efsdp Shard(1)，EP×efsdp=P，静态仍 N/P
+  const perCard = N / P;
   const paramG = perCard * bw / GIB;
   const gradStaticG = perCard * bg / GIB;
   const adamG = perCard * nAdam * bAdam / GIB;
+  const staticG = paramG + gradStaticG + adamG;
 
   const expertNumel = gateUp + down;
   const attnAvg = L ? (nFull * fullAttn + nGdn * gdn) / L : 0;
   const layerNumel = expertNumel + moeOther + attnAvg + 2 * H;
   const unitNumel = p.wrap ? layerNumel : (expertNumel || layerNumel);
-  const U = unitNumel * bw / GIB / EP;
+  const Ufull = unitNumel * bw / GIB;
+  const U = Ufull / EP;
 
   const prefetch = Math.max(p.prefetch || 0, 0);
   const agG = U;
@@ -405,34 +415,48 @@ function compute(model, train) {
   const reduceInG = U * reduceScale;
   const gmmG = (p.gmm && E > 0 && !p.wrap) ? U : 0;
   const dynG = agG + copyG + prefG + reduceInG + gmmG;
-  const upgradeG = (E > 0 && reduceScale > 1) ? (L + mtp) * U / P : 0;
-  const gradG = gradStaticG + upgradeG;
+  // fp32 reduce_output 与静态 bf16 梯度是不同张量，高峰叠整份 2U/P；bf16 reduce 即静态梯度，不再加
+  const nPile = L + mtp;
+  const pileG = reduceScale > 1 ? nPile * (Ufull * reduceScale) / P : 0;
+  const pileEachG = nPile ? pileG / nPile : 0;
 
   const samplesFwd = (p.chunk || 0) > 0 ? p.chunk : Math.max(p.mbs || 1, 1);
-  const tokens = samplesFwd * Math.max(p.seq || 1, 1);
+  const seq = Math.max(p.seq || 1, 1);
+  const seqLocal = seq / CP;
+  const tokens = samplesFwd * seqLocal;
   const hiddenG = tokens * H * 2 / GIB;
   const liveLayers = (p.recompute || p.offload) ? 1 : Math.max(L, 1);
-  let actG = liveLayers * hiddenG;
   let skipG = 0;
   if (p.skipGdn && nGdn > 0 && !p.offload) {
     const qkv = 2 * (p.gdnKH || 0) * (p.gdnKD || 0) + (p.gdnVH || 0) * (p.gdnVD || 0);
     skipG = nGdn * tokens * qkv * 2 / GIB;
-    actG += skipG;
   }
+  let dispatchG = 0;
+  if (EP > 1 && E > 0) {
+    dispatchG = tokens * topk * H * 2 / GIB;
+  }
+  const actG = liveLayers * hiddenG + skipG + dispatchG;
 
   const nComm = 1 + (EP > 1 ? 1 : 0) + (CP > 1 ? 1 : 0);
   const hcclMB = Math.max(p.hcclMB || 200, 1);
   const hcclG = nComm * hcclMB * 2 / 1024;
   const fragG = p.fragG, ptaG = p.ptaG, osG = p.osG;
-  const peakG = paramG + gradG + adamG + actG + dynG;
+  const peakG = staticG + dynG + pileG + actG;
   const deviceG = peakG + hcclG + fragG + ptaG + osG;
 
+  const warns = [];
+  if (P % EP !== 0) warns.push("EDP=1 时 P 应能被 EP 整除（efsdp=P/EP）");
+  if (p.nKV && ulysses > 1 && p.nKV % ulysses !== 0) warns.push("n_kv=" + p.nKV + " 不能被 Ulysses=" + ulysses + " 整除");
+  if (seq % CP !== 0) warns.push("seq=" + seq + " 不能被 CP=" + CP + " 整除，collator 会要求 pad");
+
   return {
-    N, P, EP, CP, Pdense, Pexpert, perCard, paramG, gradStaticG, upgradeG, gradG, adamG,
-    nFull, nGdn, U, agG, copyG, prefG, reduceInG, gmmG, dynG, actG, skipG, hiddenG,
+    N, P, EP, CP, ulysses, ring, perCard, paramG, gradStaticG, adamG, staticG,
+    nFull, nGdn, U, Ufull, agG, copyG, prefG, reduceInG, gmmG, dynG,
+    pileG, pileEachG, nPile, actG, skipG, dispatchG, hiddenG,
     hcclG, nComm, hcclMB, fragG, ptaG, osG, peakG, deviceG,
-    nExpert, vit, L, H, V, E, mbs: p.mbs, seq: p.seq, chunk: p.chunk, prefetch,
-    samplesFwd, tokens, liveLayers, mtp, wrap: !!p.wrap, bw, bReduce, reduceScale,
+    nExpert, vit, L, H, V, E, mbs: p.mbs, seq, chunk: p.chunk, prefetch,
+    samplesFwd, tokens, seqLocal, liveLayers, mtp, wrap: !!p.wrap, bw, bReduce, reduceScale,
+    topk, warns,
   };
 }
 
@@ -441,6 +465,7 @@ function readForm() {
   t.P = Math.max(1, Number($("ovP").value) || t.P);
   t.EP = Math.max(1, Number($("ovEP").value) || t.EP);
   t.CP = Math.max(1, Number($("ovCP").value) || t.CP);
+  t.ring = Math.max(1, Number($("ovRing").value) || t.ring);
   t.wrap = Number($("ovWrap").value) ? 1 : 0;
   t.bReduce = Number($("ovReduce").value) === 2 ? 2 : 4;
   t.hbm = Math.max(1, Number($("ovHbm").value) || t.hbm);
@@ -463,6 +488,7 @@ function writeForm() {
   $("ovP").value = t.P;
   $("ovEP").value = t.EP;
   $("ovCP").value = t.CP;
+  $("ovRing").value = t.ring || 1;
   $("ovWrap").value = String(t.wrap || 0);
   $("ovReduce").value = String(t.bReduce === 2 ? 2 : 4);
   $("ovHbm").value = t.hbm;
@@ -482,10 +508,11 @@ function writeForm() {
 function partsOf(r) {
   return [
     { id: "weight", name: "权重", g: r.paramG, color: COLORS.weight },
-    { id: "grad", name: "梯度", g: r.gradG, color: COLORS.grad },
+    { id: "grad", name: "梯度", g: r.gradStaticG, color: COLORS.grad },
     { id: "adam", name: "优化器", g: r.adamG, color: COLORS.adam },
+    { id: "dyn", name: "4.1 当前层", g: r.dynG, color: COLORS.dyn },
+    { id: "pile", name: "4.2 堆积", g: r.pileG, color: COLORS.pile },
     { id: "act", name: "激活值", g: r.actG, color: COLORS.act },
-    { id: "dyn", name: "动态内存", g: r.dynG, color: COLORS.dyn },
     { id: "hccl", name: "HCCL", g: r.hcclG, color: COLORS.hccl },
     { id: "frag", name: "内存碎片", g: r.fragG, color: COLORS.frag },
     { id: "pta", name: "PTA", g: r.ptaG, color: COLORS.pta },
@@ -507,6 +534,13 @@ function render() {
   $("hbmBar").innerHTML = parts.map((p) =>
     `<i style="width:${Math.max(0, p.g / tot * 100)}%;background:${p.color}"></i>`
   ).join("");
+  $("summary").innerHTML = [
+    { n: "静态", v: r.staticG, p: "N/P × 12" },
+    { n: "形状高峰", v: r.peakG, p: "静态 + 4.1 + 4.2 + 激活" },
+    { n: "整卡", v: r.deviceG, p: "高峰 + HCCL/碎片/PTA/OS" },
+  ].map((x) =>
+    `<div class="blk"><div class="n">${x.n}</div><div class="v">${fmtG(x.v)} GiB</div><div class="p">${x.p}</div></div>`
+  ).join("");
 
   $("blocks").innerHTML = parts.map((p) =>
     `<div class="blk"><div class="n">${p.name}</div><div class="v">${fmtG(p.g)} GiB</div><div class="p">${pct(p.g, tot)} of total</div></div>`
@@ -515,46 +549,61 @@ function render() {
   const chips = [
     `<span class="chip">${fam.label}</span>`,
     `<span class="chip">${r.L}L · P=${r.P} · EP=${r.EP} · CP=${r.CP}</span>`,
-    `<span class="chip">seq=${r.seq} mbs=${r.mbs} chunk=${r.chunk}</span>`,
+    `<span class="chip">seq=${r.seq}${r.CP > 1 ? " → " + r.seqLocal : ""} mbs=${r.mbs} chunk=${r.chunk}</span>`,
     `<span class="chip">bf16 · AdamW · reduce ${r.bReduce === 2 ? "bf16" : "fp32"}</span>`,
   ];
   if (S.cfgName) chips.unshift(`<span class="chip ok">${S.cfgName}</span>`);
   if (r.mtp > 0) chips.push(`<span class="chip warn">MTP=${r.mtp}</span>`);
   if (S.train.wrap) chips.push(`<span class="chip">整层 wrap</span>`);
   if (S.train.freezeVisual) chips.push(`<span class="chip">冻视觉</span>`);
+  if (r.EP > 1) chips.push(`<span class="chip">U_EP=U/${r.EP}</span>`);
   $("chips").innerHTML = chips.join("");
+  setErr((r.warns || []).join("；"));
 
   const li = (title, fml, val) =>
     `<li><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></li>`;
 
+  const pileEq = r.reduceScale > 1
+    ? `L × 2U / P　每份 ${fmtG(r.pileEachG * 1024)} MiB`
+    : `reduce=bf16：堆积即静态梯度，不再另加`;
+  const actEq = r.CP > 1
+    ? `liveLayers × B_fwd × (S/CP) × H × 2`
+    : `liveLayers × B_fwd × S × H × 2`;
+  const dynEq = r.EP > 1
+    ? `(2 + prefetch)×(U/EP)  +  ${r.reduceScale}×(U/EP)  +  GMM`
+    : `(2 + prefetch)U  +  ${r.reduceScale}U  +  GMM`;
+
   $("mapBody").innerHTML = [
     partBlock("权重", COLORS.weight, r.paramG,
       `N / P × 2 B`,
-      li("每卡参数分片", `N=${fmtN(r.N)}，P=${r.P}`, fmtG(r.paramG) + " GiB")),
-    partBlock("梯度", COLORS.grad, r.gradG,
-      r.reduceScale > 1 ? `N / P × 2 B  +  L × U / P` : `N / P × 2 B`,
-      li("静态 bf16 梯度", `N / P × 2 B`, fmtG(r.gradStaticG) + " GiB") +
-      li("expert reduce 升精差",
-        r.reduceScale > 1 ? `L × U / P　fp32 reduce 相对静态 bf16 多出来的一份` : `reduce 与 param 同为 bf16，升精差为 0`,
-        fmtG(r.upgradeG) + " GiB")),
+      li("每卡参数分片", `N=${fmtN(r.N)}，P=${r.P}；EDP=1 时 EP 不改静态`, fmtG(r.paramG) + " GiB")),
+    partBlock("梯度", COLORS.grad, r.gradStaticG,
+      `N / P × 2 B`,
+      li("静态 bf16 梯度", `与 4.2 的 fp32 reduce 输出是不同张量`, fmtG(r.gradStaticG) + " GiB")),
     partBlock("优化器", COLORS.adam, r.adamG,
       `N / P × 8 B`,
       li("AdamW 一阶 + 二阶", `两份 fp32：exp_avg + exp_avg_sq`, fmtG(r.adamG) + " GiB")),
-    partBlock("激活值", COLORS.act, r.actG,
-      r.skipG > 0
-        ? `liveLayers × B_fwd × S × H × 2  +  n_GDN × tokens × (2d_k+d_v) × 2`
-        : `liveLayers × B_fwd × S × H × 2`,
-      li("residual hidden", `liveLayers=${r.liveLayers}，B_fwd=${r.samplesFwd}，S=${r.seq}，H=${r.H}`, fmtG(r.hiddenG * r.liveLayers) + " GiB") +
-      (r.skipG > 0 ? li("skip_gdn 中间结果", `offload 关闭时计入 NPU`, fmtG(r.skipG) + " GiB") : "")),
-    partBlock("动态内存", COLORS.dyn, r.dynG,
-      `(2 + prefetch)U  +  ${r.reduceScale}U  +  GMM`,
-      li("all-gather 输出", `U`, fmtG(r.agG) + " GiB") +
-      li("copy_out 未分片参数", `U`, fmtG(r.copyG) + " GiB") +
-      li("prefetch all-gather", `prefetch × U　prefetch=${r.prefetch}`, fmtG(r.prefG) + " GiB") +
+    partBlock("4.1 当前层", COLORS.dyn, r.dynG,
+      dynEq,
+      li("all-gather 输出", r.EP > 1 ? `U/EP　U=${fmtG(r.Ufull)}` : `U`, fmtG(r.agG) + " GiB") +
+      li("copy_out 未分片参数", r.EP > 1 ? `U/EP` : `U`, fmtG(r.copyG) + " GiB") +
+      li("prefetch all-gather", `prefetch × U_EP　prefetch=${r.prefetch}`, fmtG(r.prefG) + " GiB") +
       li("foreach_reduce 输入",
-        r.reduceScale > 1 ? `U × 4/2 = 2U　fp32、未切分` : `U　bf16、未切分`,
+        r.reduceScale > 1 ? `${r.reduceScale}×U_EP　fp32、未切分` : `U_EP　bf16、未切分`,
         fmtG(r.reduceInG) + " GiB") +
-      li("GMM grad_weight", r.gmmG ? `U` : `未启用`, fmtG(r.gmmG) + " GiB")),
+      li("GMM grad_weight", r.gmmG ? `U_EP` : `未启用`, fmtG(r.gmmG) + " GiB")),
+    partBlock("4.2 堆积", COLORS.pile, r.pileG,
+      pileEq,
+      li("各层 reduce-scatter 输出",
+        r.reduceScale > 1
+          ? `上限 ${r.nPile} 份 × 2U/P；EDP=1 时不随 EP 缩小`
+          : `reduce 与 param 同为 bf16，已计入静态梯度`,
+        fmtG(r.pileG) + " GiB")),
+    partBlock("激活值", COLORS.act, r.actG,
+      actEq,
+      li("residual hidden", `liveLayers=${r.liveLayers}，B_fwd=${r.samplesFwd}，S_local=${r.seqLocal}（S=${r.seq} / CP=${r.CP}），H=${r.H}`, fmtG(r.hiddenG * r.liveLayers) + " GiB") +
+      (r.skipG > 0 ? li("skip_gdn 中间结果", `offload 关闭时计入 NPU`, fmtG(r.skipG) + " GiB") : "") +
+      (r.dispatchG > 0 ? li("EP token dispatch", `T × topk × H × 2　topk=${r.topk}`, fmtG(r.dispatchG) + " GiB") : "")),
     partBlock("HCCL", COLORS.hccl, r.hcclG,
       `n_comm × HCCL_BUFFSIZE × 2`,
       li("通信域 × 收发缓冲", `n_comm=${r.nComm}（FSDP/DP${r.EP > 1 ? " + EP" : ""}${r.CP > 1 ? " + CP" : ""}），BUFFSIZE=${r.hcclMB} MB`, fmtG(r.hcclG) + " GiB")),
@@ -570,8 +619,10 @@ function render() {
   ].join("");
 
   $("mapFoot").textContent =
-    "U = 一层 wrap 单元 bf16 = " + fmtG(r.U) + " GiB。高峰 " + fmtG(r.peakG) +
-    " 对应 dump/形状加总；整卡再加 HCCL / 碎片 / PTA / Device OS。";
+    "U(全量) = " + fmtG(r.Ufull) + " GiB，U_EP = U/EP = " + fmtG(r.U) +
+    " GiB。高峰 " + fmtG(r.peakG) + " = 静态 " + fmtG(r.staticG) +
+    " + 4.1 " + fmtG(r.dynG) + " + 4.2 " + fmtG(r.pileG) +
+    " + 激活 " + fmtG(r.actG) + "；整卡再加 HCCL / 碎片 / PTA / Device OS。";
 }
 
 function partBlock(name, color, g, eq, inner) {
