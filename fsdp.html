@@ -113,6 +113,28 @@
     .sub li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 6px 0; font-size: 13px; }
     .sub .fml { color: var(--muted); font-family: var(--mono); font-size: 11px; }
     .sub .sv { font-family: var(--mono); }
+    .tree { margin: 4px 0 0; }
+    .tree details { border-top: 1px solid #e8eeea; }
+    .tree > details:first-child { border-top: 0; }
+    .tree summary {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
+      align-items: start; padding: 7px 0; cursor: pointer; list-style: none;
+    }
+    .tree summary::-webkit-details-marker, .tree summary::marker { display: none; content: ""; }
+    .tree summary .nm::before {
+      content: "▸"; display: inline-block; width: 1.15em;
+      color: var(--accent); font-size: 11px;
+    }
+    .tree details[open] > summary .nm::before { content: "▾"; }
+    .tree summary:hover .nm { color: var(--accent); }
+    .tree .kids { padding-left: 14px; }
+    .tree .leaf {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
+      padding: 6px 0 6px 1.15em; border-top: 1px solid #e8eeea; font-size: 13px;
+    }
+    .tree .nm { font-size: 13px; }
+    .tree .fml { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+    .tree .sv { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
     .foot { font-size: 12px; color: var(--muted); margin-top: 8px; }
     @media (max-width: 980px) {
       .app { grid-template-columns: 1fr; }
@@ -570,6 +592,10 @@ function render() {
 
   const li = (title, fml, val) =>
     `<li><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></li>`;
+  const leaf = (title, fml, val) =>
+    `<div class="leaf"><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div>`;
+  const branch = (title, fml, val, inner) =>
+    `<details><summary><div class="nm">${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></summary><div class="kids">${inner}</div></details>`;
 
   const pileEq = r.reduceScale > 1
     ? `L × 2U / P　每份 ${fmtG(r.pileEachG * 1024)} MiB`
@@ -601,59 +627,69 @@ function render() {
     uInner += li("U_EP", `U / EP = ${fmtG(r.Ufull)} / ${r.EP}，动态内存按这份计`, fmtG(r.U) + " GiB");
   }
 
-  let nInner =
-    li("embed", `V × H = ${fmtN(r.V)} × ${fmtN(r.H)}`, fmtN(r.embed)) +
-    li("lm_head", r.tie ? "tie_word_embeddings，与 embed 共用" : `V × H = ${fmtN(r.V)} × ${fmtN(r.H)}（未 tie）`, fmtN(r.lm)) +
-    li("最终 RMSNorm", `H = ${fmtN(r.H)}`, fmtN(r.finalNorm));
+  const vocabN = r.embed + r.lm + r.finalNorm;
+  const mlpNormN = r.L * 2 * r.H;
+  let mlpKids;
   if (r.E > 0) {
-    nInner +=
-      li("gate_up", `E × H × 2I = ${r.E} × ${r.H} × ${2 * r.I}`, fmtN(r.gateUp)) +
-      li("down", `E × I × H = ${r.E} × ${r.I} × ${r.H}`, fmtN(r.down)) +
-      li("router", `E × H = ${r.E} × ${r.H}`, fmtN(r.router)) +
-      li("shared", `3 × H × I_share = 3 × ${r.H} × ${r.shareI}`, fmtN(r.shared)) +
-      li("shared_gate", `H`, fmtN(r.sharedGate)) +
-      li("一层 MLP", `gate_up + down + router + shared + shared_gate`, fmtN(r.mlpPer)) +
-      li("L 层 MLP + RMSNorm", `L × (MLP + 2H) = ${r.L} × (${fmtN(r.mlpPer)} + ${fmtN(2 * r.H)})`, fmtN(r.mlpLayersN));
+    mlpKids =
+      branch("一层 MLP", "gate_up + down + router + shared + shared_gate", fmtN(r.mlpPer),
+        leaf("gate_up", `E × H × 2I = ${r.E} × ${r.H} × ${2 * r.I}`, fmtN(r.gateUp)) +
+        leaf("down", `E × I × H = ${r.E} × ${r.I} × ${r.H}`, fmtN(r.down)) +
+        leaf("router", `E × H = ${r.E} × ${r.H}`, fmtN(r.router)) +
+        leaf("shared", `3 × H × I_share = 3 × ${r.H} × ${r.shareI}`, fmtN(r.shared)) +
+        leaf("shared_gate", `H`, fmtN(r.sharedGate))) +
+      leaf("L 层 RMSNorm", `L × 2H = ${r.L} × ${fmtN(2 * r.H)}`, fmtN(mlpNormN));
   } else if (r.denseI > 0) {
-    nInner +=
-      li("dense MLP", `3 × H × I = 3 × ${r.H} × ${r.denseI}`, fmtN(r.denseMlp)) +
-      li("L 层 MLP + RMSNorm", `L × (3HI + 2H) = ${r.L} × (${fmtN(r.denseMlp)} + ${fmtN(2 * r.H)})`, fmtN(r.mlpLayersN));
+    mlpKids =
+      leaf("一层 dense MLP", `3 × H × I = 3 × ${r.H} × ${r.denseI}`, fmtN(r.denseMlp)) +
+      leaf("L 层 RMSNorm", `L × 2H = ${r.L} × ${fmtN(2 * r.H)}`, fmtN(mlpNormN));
   }
-  nInner +=
-    li("full q", `H × n_q × d${r.attnGate ? " × 2（attn_output_gate）" : ""} = ${r.H} × ${r.nQ} × ${r.headDim}${r.attnGate ? " × 2" : ""}`, fmtN(r.fullQ)) +
-    li("full k / v", `H × n_kv × d = ${r.H} × ${r.nKV} × ${r.headDim}，各一份`, fmtN(r.fullK + r.fullV)) +
-    li("full o", `(n_q × d) × H = ${r.nQ * r.headDim} × ${r.H}`, fmtN(r.fullO)) +
-    li("full q/k_norm", `2 × d = 2 × ${r.headDim}`, fmtN(r.fullQkNorm)) +
-    li("一层 full", `q + k + v + o + q/k_norm`, fmtN(r.fullAttn)) +
-    li(`${r.nFull} 层 full`, `${r.nFull} × ${fmtN(r.fullAttn)}`, fmtN(r.nFull * r.fullAttn));
+  let attnKids =
+    branch("一层 full", "q + k + v + o + q/k_norm", fmtN(r.fullAttn),
+      leaf("q", `H × n_q × d${r.attnGate ? " × 2（attn_output_gate）" : ""} = ${r.H} × ${r.nQ} × ${r.headDim}${r.attnGate ? " × 2" : ""}`, fmtN(r.fullQ)) +
+      leaf("k / v", `H × n_kv × d = ${r.H} × ${r.nKV} × ${r.headDim}，各一份`, fmtN(r.fullK + r.fullV)) +
+      leaf("o", `(n_q × d) × H = ${r.nQ * r.headDim} × ${r.H}`, fmtN(r.fullO)) +
+      leaf("q/k_norm", `2 × d = 2 × ${r.headDim}`, fmtN(r.fullQkNorm))) +
+    leaf(`${r.nFull} 层 full`, `${r.nFull} × ${fmtN(r.fullAttn)}`, fmtN(r.nFull * r.fullAttn));
   if (r.nGdn > 0) {
-    nInner +=
-      li("一层 GDN", `H×(2d_k+2d_v+2n_v) + d_v×H + conv×(2d_k+d_v) + 2n_v + d_v_head　d_k=${r.dk}，d_v=${r.dv}，n_v=${r.gdnVH}`, fmtN(r.gdn)) +
-      li(`${r.nGdn} 层 GDN`, `${r.nGdn} × ${fmtN(r.gdn)}`, fmtN(r.nGdn * r.gdn));
+    attnKids +=
+      leaf("一层 GDN", `H×(2d_k+2d_v+2n_v) + d_v×H + conv×(2d_k+d_v) + 2n_v + d_v_head　d_k=${r.dk}，d_v=${r.dv}，n_v=${r.gdnVH}`, fmtN(r.gdn)) +
+      leaf(`${r.nGdn} 层 GDN`, `${r.nGdn} × ${fmtN(r.gdn)}`, fmtN(r.nGdn * r.gdn));
   }
-  nInner += li("注意力合计", `${r.nFull} × full + ${r.nGdn} × GDN`, fmtN(r.attn));
+  let textKids =
+    branch("词表", "embed + lm_head + 最终 RMSNorm", fmtN(vocabN),
+      leaf("embed", `V × H = ${fmtN(r.V)} × ${fmtN(r.H)}`, fmtN(r.embed)) +
+      leaf("lm_head", r.tie ? "tie_word_embeddings，与 embed 共用" : `V × H = ${fmtN(r.V)} × ${fmtN(r.H)}（未 tie）`, fmtN(r.lm)) +
+      leaf("最终 RMSNorm", `H = ${fmtN(r.H)}`, fmtN(r.finalNorm)));
+  if (mlpKids) {
+    textKids += branch("L 层 MLP + RMSNorm", `L × (一层 MLP + 2H) = ${r.L} × (${fmtN(r.mlpPer)} + ${fmtN(2 * r.H)})`, fmtN(r.mlpLayersN), mlpKids);
+  }
+  textKids += branch("注意力", `${r.nFull} × full + ${r.nGdn} × GDN`, fmtN(r.attn), attnKids);
   if (r.mtp > 0) {
-    nInner += li("MTP", `${r.mtp} × (MLP + 2H + attn_avg)`, fmtN(r.mtpN));
+    textKids += leaf("MTP", `${r.mtp} × (MLP + 2H + attn_avg)`, fmtN(r.mtpN));
   }
-  nInner += li("Text", `词表 + norm + L×MLP + 注意力${r.mtp > 0 ? " + MTP" : ""}`, fmtN(r.textN));
-  if (r.vitDepth > 0) {
-    if (r.freezeVisual) {
-      nInner += li("ViT", "冻结，不计入 N", "0");
-    } else {
-      nInner +=
-        li("ViT patch embed", `in_ch × t_patch × patch² × H_v + H_v`, fmtN(r.vitPatch)) +
-        li("ViT 一层 block", `attn + mlp + norm`, fmtN(r.vitBlock)) +
-        li(`ViT ${r.vitDepth} blocks`, `${r.vitDepth} × ${fmtN(r.vitBlock)}`, fmtN(r.vitDepth * r.vitBlock)) +
-        li("ViT merger + 位置编码", `merger MLP + n_pos × H_v`, fmtN(r.vitMerger)) +
-        li("ViT", `patch + blocks + merger`, fmtN(r.vit));
-    }
+  let vitKids;
+  if (r.vitDepth > 0 && r.freezeVisual) {
+    vitKids = leaf("冻结", "不计入 N", "0");
+  } else if (r.vitDepth > 0) {
+    vitKids =
+      leaf("patch embed", `in_ch × t_patch × patch² × H_v + H_v`, fmtN(r.vitPatch)) +
+      leaf("一层 block", `attn + mlp + norm`, fmtN(r.vitBlock)) +
+      leaf(`${r.vitDepth} blocks`, `${r.vitDepth} × ${fmtN(r.vitBlock)}`, fmtN(r.vitDepth * r.vitBlock)) +
+      leaf("merger + 位置编码", `merger MLP + n_pos × H_v`, fmtN(r.vitMerger));
   }
-  nInner += li("N", `Text + ViT = ${fmtN(r.textN)} + ${fmtN(r.vit)}`, fmtN(r.N));
+  const nTree =
+    `<div class="tree">` +
+    branch("Text", `词表 + L×MLP + 注意力${r.mtp > 0 ? " + MTP" : ""}`, fmtN(r.textN), textKids) +
+    (vitKids
+      ? branch("ViT", r.freezeVisual ? "冻结，不计入 N" : "patch + blocks + merger", fmtN(r.vit), vitKids)
+      : leaf("ViT", "无视觉塔", "0")) +
+    `</div>`;
 
   $("mapBody").innerHTML = [
     partBlock("N（总参数）", COLORS.weight, r.N * r.bw / GIB,
-      `词表 + L×(MLP+2H) + 注意力 + ViT`,
-      nInner,
+      `Text + ViT`,
+      nTree,
       fmtN(r.N)),
     partBlock("U（FSDP wrap 单元）", COLORS.dyn, r.Ufull,
       uEq,
@@ -706,7 +742,7 @@ function render() {
   ].join("");
 
   $("mapFoot").textContent =
-    "N 由 config 的词表 / 每层 MLP / 注意力 / ViT 相加，还不是显存。" +
+    "N = Text + ViT。默认收起，点开 Text / ViT 再看词表、MLP、注意力等模块。" +
     " U 是最大 wrap 单元的全量 bf16（嵌套时 = 一层 expert 的 gate_up+down），不是每卡分片。" +
     " 动态内存与规约分片都按 U 计份。高峰 " + fmtG(r.peakG) + " = 静态 " + fmtG(r.staticG) +
     " + 动态内存 " + fmtG(r.dynG) + " + 规约分片 " + fmtG(r.pileG) +
@@ -715,7 +751,8 @@ function render() {
 
 function partBlock(name, color, g, eq, inner, right) {
   const shown = right != null ? right : (fmtG(g) + " GiB");
-  return `<div class="part"><div class="part-h"><div><b style="background:${color}"></b>${name}</div><div class="g">${shown}</div></div><div class="eq">${eq}</div><ul class="sub">${inner}</ul></div>`;
+  const body = inner.trim().startsWith("<div class=\"tree\"") ? inner : `<ul class="sub">${inner}</ul>`;
+  return `<div class="part"><div class="part-h"><div><b style="background:${color}"></b>${name}</div><div class="g">${shown}</div></div><div class="eq">${eq}</div>${body}</div>`;
 }
 
 function setErr(msg) { $("err").textContent = msg || ""; }
