@@ -158,15 +158,9 @@
               <option value="1">整层 layers.*</option>
             </select>
           </label>
-          <label class="f">reduce_dtype
-            <select id="ovReduce">
-              <option value="4">fp32</option>
-              <option value="2">bf16</option>
-            </select>
-          </label>
           <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="1" step="1" /></label>
         </div>
-        <p class="hint" style="margin:8px 0 0;">param=bf16 · AdamW · EP=1 · CP=1。静态 N/P×12；动态内存 6U；激活用完整 seq。fp32 reduce 的规约分片是 L×2U/P 整份，与静态 bf16 梯度同时占用。</p>
+        <p class="hint" style="margin:8px 0 0;">param=bf16 · reduce=fp32 · AdamW · EP=1 · CP=1。静态 N/P×12；动态内存 6U；激活用完整 seq。规约分片 L×2U/P，与静态 bf16 梯度同时占用。</p>
       </section>
 
       <section class="card">
@@ -338,31 +332,41 @@ function compute(model, train) {
   const ring = 1;
   const CP = 1;
   const bw = 2, bg = 2, nAdam = 2, bAdam = 4;
-  const bReduce = p.bReduce === 2 ? 2 : 4;
-  const reduceScale = bw ? bReduce / bw : 1;
+  const bReduce = 4;
+  const reduceScale = 2;
   const mtp = p.mtp || 0;
   const topk = Math.max(p.topk || 8, 1);
+  const shareI = p.shareI || I;
 
   const embed = V * H;
   const lm = p.tie ? 0 : V * H;
-  let gateUp = 0, down = 0, moeOther = 0, denseMlp = 0;
+  const finalNorm = H;
+  let gateUp = 0, down = 0, router = 0, shared = 0, sharedGate = 0, denseMlp = 0;
   if (E > 0) {
     gateUp = E * H * 2 * I;
     down = E * I * H;
-    moeOther = E * H + 3 * H * (p.shareI || I) + H;
+    router = E * H;
+    shared = 3 * H * shareI;
+    sharedGate = H;
   } else if (p.denseI > 0) {
     denseMlp = 3 * H * p.denseI;
   }
+  const moeOther = router + shared + sharedGate;
   const mlpPer = gateUp + down + moeOther + denseMlp;
 
-  const fullAttn = H * p.nQ * p.headDim * (p.attnGate ? 2 : 1)
-    + H * p.nKV * p.headDim + H * p.nKV * p.headDim
-    + p.nQ * p.headDim * H + 2 * p.headDim;
+  const fullQ = H * p.nQ * p.headDim * (p.attnGate ? 2 : 1);
+  const fullK = H * p.nKV * p.headDim;
+  const fullV = H * p.nKV * p.headDim;
+  const fullO = p.nQ * p.headDim * H;
+  const fullQkNorm = 2 * p.headDim;
+  const fullAttn = fullQ + fullK + fullV + fullO + fullQkNorm;
   const hasGdn = (p.gdnKH || 0) > 0;
+  const dk = (p.gdnKH || 0) * (p.gdnKD || 0);
+  const dv = (p.gdnVH || 0) * (p.gdnVD || 0);
   const gdn = hasGdn
-    ? H * (2 * p.gdnKH * p.gdnKD + 2 * p.gdnVH * p.gdnVD + 2 * p.gdnVH)
-      + p.gdnVH * p.gdnVD * H
-      + p.gdnConv * (2 * p.gdnKH * p.gdnKD + p.gdnVH * p.gdnVD)
+    ? H * (2 * dk + 2 * dv + 2 * p.gdnVH)
+      + dv * H
+      + p.gdnConv * (2 * dk + dv)
       + 2 * p.gdnVH + p.gdnVD
     : 0;
 
@@ -377,16 +381,18 @@ function compute(model, train) {
     nGdn = L - nFull;
   }
   const attn = nFull * fullAttn + nGdn * gdn;
-  const mtpN = mtp * (mlpPer + 2 * H + (hasGdn ? (fullAttn + gdn) / 2 : fullAttn));
-  const textN = embed + lm + H + attn + L * (mlpPer + 2 * H) + mtpN;
+  const layerNorm = 2 * H;
+  const mlpLayersN = L * (mlpPer + layerNorm);
+  const mtpN = mtp * (mlpPer + layerNorm + (hasGdn ? (fullAttn + gdn) / 2 : fullAttn));
+  const textN = embed + lm + finalNorm + attn + mlpLayersN + mtpN;
 
-  let vit = 0;
-  if (!p.freezeVisual && p.vitDepth > 0 && p.vitH > 0) {
+  let vitPatch = 0, vitBlock = 0, vitMerger = 0, vit = 0;
+  if (p.vitDepth > 0 && p.vitH > 0) {
     const Hv = p.vitH, Iv = p.vitI, out = p.vitOut, sm = p.merge;
-    const patch = p.inCh * p.tPatch * p.patch * p.patch * Hv + Hv;
-    const block = Hv * (Hv * 3) + (Hv * 3) + Hv * Hv + Hv + Hv * Iv + Iv + Iv * Hv + Hv + 2 * Hv;
-    const merger = Hv + (Hv * sm * sm) ** 2 + (Hv * sm * sm) + (Hv * sm * sm) * out + out + p.nPos * Hv;
-    vit = patch + p.vitDepth * block + merger;
+    vitPatch = p.inCh * p.tPatch * p.patch * p.patch * Hv + Hv;
+    vitBlock = Hv * (Hv * 3) + (Hv * 3) + Hv * Hv + Hv + Hv * Iv + Iv + Iv * Hv + Hv + 2 * Hv;
+    vitMerger = Hv + (Hv * sm * sm) ** 2 + (Hv * sm * sm) + (Hv * sm * sm) * out + out + p.nPos * Hv;
+    if (!p.freezeVisual) vit = vitPatch + p.vitDepth * vitBlock + vitMerger;
   }
 
   const N = textN + vit;
@@ -455,6 +461,12 @@ function compute(model, train) {
     nExpert, vit, L, H, V, E, I, mbs: p.mbs, seq, chunk: p.chunk, prefetch,
     samplesFwd, tokens, seqLocal, liveLayers, mtp, wrap: !!p.wrap, bw, bReduce, reduceScale,
     topk, warns, gateUp, down, expertNumel, unitNumel, moeOther, attnAvg,
+    embed, lm, finalNorm, router, shared, sharedGate, denseMlp, mlpPer, mlpLayersN,
+    fullAttn, gdn, attn, mtpN, textN, vitPatch, vitBlock, vitMerger, vitDepth: p.vitDepth || 0,
+    shareI, denseI: p.denseI || 0, nQ: p.nQ, nKV: p.nKV, headDim: p.headDim,
+    attnGate: !!p.attnGate, tie: !!p.tie, freezeVisual: !!p.freezeVisual,
+    dk, dv, gdnKH: p.gdnKH || 0, gdnVH: p.gdnVH || 0, gdnConv: p.gdnConv || 0, gdnVD: p.gdnVD || 0,
+    fullQ, fullK, fullV, fullO, fullQkNorm,
   };
 }
 
@@ -465,7 +477,7 @@ function readForm() {
   t.CP = 1;
   t.ring = 1;
   t.wrap = Number($("ovWrap").value) ? 1 : 0;
-  t.bReduce = Number($("ovReduce").value) === 2 ? 2 : 4;
+  t.bReduce = 4;
   t.hbm = Math.max(1, Number($("ovHbm").value) || t.hbm);
   t.hcclMB = Math.max(1, Number($("ovHccl").value) || t.hcclMB);
   t.mtp = Math.max(0, Number($("ovMtp").value) || 0);
@@ -485,7 +497,6 @@ function writeForm() {
   const t = S.train;
   $("ovP").value = t.P;
   $("ovWrap").value = String(t.wrap || 0);
-  $("ovReduce").value = String(t.bReduce === 2 ? 2 : 4);
   $("ovHbm").value = t.hbm;
   $("ovHccl").value = t.hcclMB;
   $("ovMtp").value = t.mtp;
@@ -544,8 +555,9 @@ function render() {
   const chips = [
     `<span class="chip">${fam.label}</span>`,
     `<span class="chip">${r.L}L · P=${r.P}</span>`,
+    `<span class="chip">N=${fmtN(r.N)}</span>`,
     `<span class="chip">seq=${r.seq}${r.CP > 1 ? " → " + r.seqLocal : ""} mbs=${r.mbs} chunk=${r.chunk}</span>`,
-    `<span class="chip">bf16 · AdamW · reduce ${r.bReduce === 2 ? "bf16" : "fp32"}</span>`,
+    `<span class="chip">bf16 · AdamW · reduce fp32</span>`,
   ];
   if (S.cfgName) chips.unshift(`<span class="chip ok">${S.cfgName}</span>`);
   if (r.mtp > 0) chips.push(`<span class="chip warn">MTP=${r.mtp}</span>`);
@@ -589,13 +601,66 @@ function render() {
     uInner += li("U_EP", `U / EP = ${fmtG(r.Ufull)} / ${r.EP}，动态内存按这份计`, fmtG(r.U) + " GiB");
   }
 
+  let nInner =
+    li("embed", `V × H = ${fmtN(r.V)} × ${fmtN(r.H)}`, fmtN(r.embed)) +
+    li("lm_head", r.tie ? "tie_word_embeddings，与 embed 共用" : `V × H = ${fmtN(r.V)} × ${fmtN(r.H)}（未 tie）`, fmtN(r.lm)) +
+    li("最终 RMSNorm", `H = ${fmtN(r.H)}`, fmtN(r.finalNorm));
+  if (r.E > 0) {
+    nInner +=
+      li("gate_up", `E × H × 2I = ${r.E} × ${r.H} × ${2 * r.I}`, fmtN(r.gateUp)) +
+      li("down", `E × I × H = ${r.E} × ${r.I} × ${r.H}`, fmtN(r.down)) +
+      li("router", `E × H = ${r.E} × ${r.H}`, fmtN(r.router)) +
+      li("shared", `3 × H × I_share = 3 × ${r.H} × ${r.shareI}`, fmtN(r.shared)) +
+      li("shared_gate", `H`, fmtN(r.sharedGate)) +
+      li("一层 MLP", `gate_up + down + router + shared + shared_gate`, fmtN(r.mlpPer)) +
+      li("L 层 MLP + RMSNorm", `L × (MLP + 2H) = ${r.L} × (${fmtN(r.mlpPer)} + ${fmtN(2 * r.H)})`, fmtN(r.mlpLayersN));
+  } else if (r.denseI > 0) {
+    nInner +=
+      li("dense MLP", `3 × H × I = 3 × ${r.H} × ${r.denseI}`, fmtN(r.denseMlp)) +
+      li("L 层 MLP + RMSNorm", `L × (3HI + 2H) = ${r.L} × (${fmtN(r.denseMlp)} + ${fmtN(2 * r.H)})`, fmtN(r.mlpLayersN));
+  }
+  nInner +=
+    li("full q", `H × n_q × d${r.attnGate ? " × 2（attn_output_gate）" : ""} = ${r.H} × ${r.nQ} × ${r.headDim}${r.attnGate ? " × 2" : ""}`, fmtN(r.fullQ)) +
+    li("full k / v", `H × n_kv × d = ${r.H} × ${r.nKV} × ${r.headDim}，各一份`, fmtN(r.fullK + r.fullV)) +
+    li("full o", `(n_q × d) × H = ${r.nQ * r.headDim} × ${r.H}`, fmtN(r.fullO)) +
+    li("full q/k_norm", `2 × d = 2 × ${r.headDim}`, fmtN(r.fullQkNorm)) +
+    li("一层 full", `q + k + v + o + q/k_norm`, fmtN(r.fullAttn)) +
+    li(`${r.nFull} 层 full`, `${r.nFull} × ${fmtN(r.fullAttn)}`, fmtN(r.nFull * r.fullAttn));
+  if (r.nGdn > 0) {
+    nInner +=
+      li("一层 GDN", `H×(2d_k+2d_v+2n_v) + d_v×H + conv×(2d_k+d_v) + 2n_v + d_v_head　d_k=${r.dk}，d_v=${r.dv}，n_v=${r.gdnVH}`, fmtN(r.gdn)) +
+      li(`${r.nGdn} 层 GDN`, `${r.nGdn} × ${fmtN(r.gdn)}`, fmtN(r.nGdn * r.gdn));
+  }
+  nInner += li("注意力合计", `${r.nFull} × full + ${r.nGdn} × GDN`, fmtN(r.attn));
+  if (r.mtp > 0) {
+    nInner += li("MTP", `${r.mtp} × (MLP + 2H + attn_avg)`, fmtN(r.mtpN));
+  }
+  nInner += li("Text", `词表 + norm + L×MLP + 注意力${r.mtp > 0 ? " + MTP" : ""}`, fmtN(r.textN));
+  if (r.vitDepth > 0) {
+    if (r.freezeVisual) {
+      nInner += li("ViT", "冻结，不计入 N", "0");
+    } else {
+      nInner +=
+        li("ViT patch embed", `in_ch × t_patch × patch² × H_v + H_v`, fmtN(r.vitPatch)) +
+        li("ViT 一层 block", `attn + mlp + norm`, fmtN(r.vitBlock)) +
+        li(`ViT ${r.vitDepth} blocks`, `${r.vitDepth} × ${fmtN(r.vitBlock)}`, fmtN(r.vitDepth * r.vitBlock)) +
+        li("ViT merger + 位置编码", `merger MLP + n_pos × H_v`, fmtN(r.vitMerger)) +
+        li("ViT", `patch + blocks + merger`, fmtN(r.vit));
+    }
+  }
+  nInner += li("N", `Text + ViT = ${fmtN(r.textN)} + ${fmtN(r.vit)}`, fmtN(r.N));
+
   $("mapBody").innerHTML = [
+    partBlock("N（总参数）", COLORS.weight, r.N * r.bw / GIB,
+      `词表 + L×(MLP+2H) + 注意力 + ViT`,
+      nInner,
+      fmtN(r.N)),
     partBlock("U（FSDP wrap 单元）", COLORS.dyn, r.Ufull,
       uEq,
       uInner),
     partBlock("权重", COLORS.weight, r.paramG,
       `N / P × 2 B`,
-      li("每卡参数分片", `N=${fmtN(r.N)}，P=${r.P}；EDP=1 时 EP 不改静态`, fmtG(r.paramG) + " GiB")),
+      li("每卡参数分片", `N=${fmtN(r.N)}，P=${r.P}；bf16 每卡 N/P × 2`, fmtG(r.paramG) + " GiB")),
     partBlock("梯度", COLORS.grad, r.gradStaticG,
       `N / P × 2 B`,
       li("静态 bf16 梯度", r.reduceScale > 1
@@ -641,14 +706,16 @@ function render() {
   ].join("");
 
   $("mapFoot").textContent =
-    "U 是最大 wrap 单元的全量 bf16（嵌套时 = 一层 expert 的 gate_up+down），不是每卡分片。" +
+    "N 由 config 的词表 / 每层 MLP / 注意力 / ViT 相加，还不是显存。" +
+    " U 是最大 wrap 单元的全量 bf16（嵌套时 = 一层 expert 的 gate_up+down），不是每卡分片。" +
     " 动态内存与规约分片都按 U 计份。高峰 " + fmtG(r.peakG) + " = 静态 " + fmtG(r.staticG) +
     " + 动态内存 " + fmtG(r.dynG) + " + 规约分片 " + fmtG(r.pileG) +
     " + 激活 " + fmtG(r.actG) + "；整卡再加 HCCL / 碎片 / PTA / Device OS。";
 }
 
-function partBlock(name, color, g, eq, inner) {
-  return `<div class="part"><div class="part-h"><div><b style="background:${color}"></b>${name}</div><div class="g">${fmtG(g)} GiB</div></div><div class="eq">${eq}</div><ul class="sub">${inner}</ul></div>`;
+function partBlock(name, color, g, eq, inner, right) {
+  const shown = right != null ? right : (fmtG(g) + " GiB");
+  return `<div class="part"><div class="part-h"><div><b style="background:${color}"></b>${name}</div><div class="g">${shown}</div></div><div class="eq">${eq}</div><ul class="sub">${inner}</ul></div>`;
 }
 
 function setErr(msg) { $("err").textContent = msg || ""; }
