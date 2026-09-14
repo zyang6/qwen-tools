@@ -126,7 +126,7 @@
   <header>
     <a class="home" href="./">← QWEN 小工具</a>
     <h1>FSDP 显存建模</h1>
-    <p>与入门文档同一套公式：静态 N/P×12 + 动态内存 6×(U/EP) + 规约分片 L×2U/P + 激活 B×(S/CP)×H + 运行时预留</p>
+    <p>与入门文档同一套公式：静态 N/P×12 + 动态内存 6U + 规约分片 L×2U/P + 激活 B×S×H + 运行时预留</p>
   </header>
 
   <div class="app">
@@ -151,9 +151,6 @@
         <h3 class="sec">切分配置</h3>
         <div class="fields">
           <label class="f">FSDP 卡数 P<input id="ovP" type="number" min="1" step="1" /></label>
-          <label class="f">EP<input id="ovEP" type="number" min="1" step="1" /></label>
-          <label class="f">Ulysses CP<input id="ovCP" type="number" min="1" step="1" /></label>
-          <label class="f">Ring CP<input id="ovRing" type="number" min="1" step="1" /></label>
           <label class="f">单卡容量 GiB<input id="ovHbm" type="number" min="1" step="1" /></label>
           <label class="f">Wrap 粒度
             <select id="ovWrap">
@@ -169,7 +166,7 @@
           </label>
           <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="1" step="1" /></label>
         </div>
-        <p class="hint" style="margin:8px 0 0;">param=bf16 · AdamW · EDP=1。静态始终 N/P，EP 只把动态内存的 U 变成 U/EP，不把 expert 改成只 ÷EP。CP=Ulysses×Ring，激活用 S/CP。fp32 reduce 的规约分片是 L×2U/P 整份，不是升精差 L×U/P。</p>
+        <p class="hint" style="margin:8px 0 0;">param=bf16 · AdamW · EP=1 · CP=1。静态 N/P×12；动态内存 6U；激活用完整 seq。fp32 reduce 的规约分片是 L×2U/P 整份，与静态 bf16 梯度同时占用。</p>
       </section>
 
       <section class="card">
@@ -336,10 +333,10 @@ function compute(model, train) {
   const p = { ...model, ...train };
   const V = p.vocab, H = p.hidden, L = p.layers, E = p.experts, I = p.moeI;
   const P = Math.max(p.P || 1, 1);
-  const EP = Math.max(p.EP || 1, 1);
-  const ulysses = Math.max(p.CP || 1, 1);
-  const ring = Math.max(p.ring || 1, 1);
-  const CP = ulysses * ring;
+  const EP = 1;
+  const ulysses = 1;
+  const ring = 1;
+  const CP = 1;
   const bw = 2, bg = 2, nAdam = 2, bAdam = 4;
   const bReduce = p.bReduce === 2 ? 2 : 4;
   const reduceScale = bw ? bReduce / bw : 1;
@@ -464,9 +461,9 @@ function compute(model, train) {
 function readForm() {
   const t = S.train;
   t.P = Math.max(1, Number($("ovP").value) || t.P);
-  t.EP = Math.max(1, Number($("ovEP").value) || t.EP);
-  t.CP = Math.max(1, Number($("ovCP").value) || t.CP);
-  t.ring = Math.max(1, Number($("ovRing").value) || t.ring);
+  t.EP = 1;
+  t.CP = 1;
+  t.ring = 1;
   t.wrap = Number($("ovWrap").value) ? 1 : 0;
   t.bReduce = Number($("ovReduce").value) === 2 ? 2 : 4;
   t.hbm = Math.max(1, Number($("ovHbm").value) || t.hbm);
@@ -487,9 +484,6 @@ function readForm() {
 function writeForm() {
   const t = S.train;
   $("ovP").value = t.P;
-  $("ovEP").value = t.EP;
-  $("ovCP").value = t.CP;
-  $("ovRing").value = t.ring || 1;
   $("ovWrap").value = String(t.wrap || 0);
   $("ovReduce").value = String(t.bReduce === 2 ? 2 : 4);
   $("ovHbm").value = t.hbm;
@@ -549,7 +543,7 @@ function render() {
 
   const chips = [
     `<span class="chip">${fam.label}</span>`,
-    `<span class="chip">${r.L}L · P=${r.P} · EP=${r.EP} · CP=${r.CP}</span>`,
+    `<span class="chip">${r.L}L · P=${r.P}</span>`,
     `<span class="chip">seq=${r.seq}${r.CP > 1 ? " → " + r.seqLocal : ""} mbs=${r.mbs} chunk=${r.chunk}</span>`,
     `<span class="chip">bf16 · AdamW · reduce ${r.bReduce === 2 ? "bf16" : "fp32"}</span>`,
   ];
