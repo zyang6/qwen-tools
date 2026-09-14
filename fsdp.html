@@ -116,11 +116,12 @@
     .tree { margin: 4px 0 0; }
     .tree details { border-top: 1px solid #e8eeea; }
     .tree > details:first-child { border-top: 0; }
-    .tree summary {
-      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
-      align-items: start; padding: 7px 0; cursor: pointer; list-style: none;
-    }
+    .tree summary { display: block; cursor: pointer; list-style: none; padding: 0; }
     .tree summary::-webkit-details-marker, .tree summary::marker { display: none; content: ""; }
+    .tree .sum {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
+      align-items: start; padding: 7px 0;
+    }
     .tree summary .nm::before {
       content: "▸"; display: inline-block; width: 1.15em;
       color: var(--accent); font-size: 11px;
@@ -595,7 +596,7 @@ function render() {
   const leaf = (title, fml, val) =>
     `<div class="leaf"><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div>`;
   const branch = (title, fml, val, inner) =>
-    `<details><summary><div class="nm">${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></summary><div class="kids">${inner}</div></details>`;
+    `<details><summary><div class="sum"><div class="nm">${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div></summary><div class="kids">${inner}</div></details>`;
 
   const pileEq = r.reduceScale > 1
     ? `L × 2U / P　每份 ${fmtG(r.pileEachG * 1024)} MiB`
@@ -807,6 +808,13 @@ function bindCfg() {
 
 $("btnPreset").addEventListener("click", applyPreset);
 bindCfg();
+$("mapBody").addEventListener("click", (e) => {
+  const sum = e.target.closest(".tree summary");
+  if (!sum) return;
+  e.preventDefault();
+  const d = sum.parentElement;
+  if (d && d.tagName === "DETAILS") d.open = !d.open;
+});
 document.querySelectorAll("input, select").forEach((el) => {
   if (el.id === "fileCfg") return;
   el.addEventListener("input", () => { readForm(); $("btnPreset").classList.remove("active"); render(); });
