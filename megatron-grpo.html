@@ -11,166 +11,265 @@
   <style>
     :root {
       color-scheme: light only;
-      --bg: #f6f7f9;
-      --card: #ffffff;
-      --line: #e5e7eb;
-      --text: #16181d;
-      --muted: #6b7280;
-      --accent: #3b5bcc;
+      --bg: #eaf1ed;
+      --card: rgba(255, 255, 255, 0.82);
+      --line: #d3e0d8;
+      --text: #15241e;
+      --muted: #5e7068;
+      --accent: #1f6b56;
       --ok: #0f7a45;
       --warn: #9a5b00;
       --bad: #c43d3d;
       --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
       --sans: Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --shadow: 0 10px 30px rgba(21, 36, 30, 0.06);
+      --c-w: #3b5bcc;
+      --c-g: #7c6bc4;
+      --c-o: #2a9d8f;
+      --c-a: #d4a017;
+      --c-d: #e76f51;
+      --c-h: #4a90a4;
+      --c-f: #9aa5ab;
+      --c-p: #6c8ead;
+      --c-os: #5c6b73;
+      --c-pile: #c47c9a;
     }
     * { box-sizing: border-box; }
-    html { background: #f6f7f9; }
+    html { min-height: 100%; background: #dfeae4; }
     body {
-      margin: 0; color: var(--text); font: 14px/1.5 var(--sans);
-      background: radial-gradient(900px 420px at 12% -10%, rgba(59, 91, 204, 0.08), transparent 55%), var(--bg);
+      margin: 0; min-height: 100%; color: var(--text);
+      font: 16px/1.55 var(--sans);
+      background:
+        radial-gradient(920px 460px at 8% -12%, rgba(47, 140, 110, 0.22), transparent 58%),
+        radial-gradient(720px 420px at 96% 4%, rgba(59, 91, 204, 0.12), transparent 52%),
+        linear-gradient(168deg, #e7f2ec 0%, #eef3f6 46%, #f4efe6 100%);
     }
     header {
-      background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(18px);
-      border-bottom: 1px solid var(--line); color: var(--text); padding: 16px 20px;
+      background: rgba(255, 255, 255, 0.58);
+      backdrop-filter: blur(18px);
+      border-bottom: 1px solid rgba(211, 224, 216, 0.85);
     }
-    header a.home { color: var(--muted); text-decoration: none; font-size: 12px; letter-spacing: .04em; display: inline-block; margin-bottom: 8px; }
+    .header-inner {
+      max-width: 1280px; margin: 0 auto; padding: 18px 22px 20px;
+    }
+    header a.home {
+      color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600;
+      letter-spacing: .06em; display: inline-block; margin-bottom: 8px;
+    }
     header a.home:hover { color: var(--accent); }
-    header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
-    header p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
-    .page { max-width: 920px; margin: 16px auto 40px; padding: 0 16px; display: grid; gap: 12px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
-    .drop {
-      border: 1px dashed #c5cad3; border-radius: 8px; padding: 16px 12px;
-      text-align: center; color: var(--muted); background: #fafbfc; cursor: pointer;
+    header h1 {
+      margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.15;
     }
-    .drop.over, .drop:hover { border-color: var(--accent); background: #f3f5fb; }
-    .drop strong { color: var(--text); display: block; margin-bottom: 4px; }
-    .drop .fn { color: var(--ok); font-size: 12px; margin-top: 6px; word-break: break-all; }
-    button {
-      border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 7px;
-      padding: 8px 14px; cursor: pointer; font: inherit;
+    header p {
+      margin: 8px 0 0; font-size: 15px; color: var(--muted); max-width: 46em; line-height: 1.55;
     }
-    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-    button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-    button.sm { display: inline-block; padding: 4px 10px; font-size: 12px; margin-top: 8px; }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    @media (max-width: 760px) {
-      .stats, .grid3 { grid-template-columns: 1fr; }
+    .app {
+      display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 18px;
+      max-width: 1280px; margin: 0 auto; padding: 20px 22px 56px; align-items: start;
     }
-    .g { margin-top: 12px; }
-    .g h3 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 650; letter-spacing: .04em; }
-    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-    .checks { display: flex; flex-wrap: wrap; gap: 12px 16px; }
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .side, .main { display: grid; gap: 14px; }
+    .side { position: sticky; top: 14px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+      padding: 18px 18px 16px; box-shadow: var(--shadow); backdrop-filter: blur(10px);
+    }
+    .kicker {
+      margin: 0 0 12px; font: 600 11px/1 var(--mono); letter-spacing: .18em;
+      text-transform: uppercase; color: var(--accent);
+    }
+    h3.sec { margin: 0 0 12px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
     .chip {
-      font-size: 12px; background: #eef2f6; color: #334; border-radius: 99px;
-      padding: 2px 9px;
+      font-size: 12px; font-weight: 600; background: #eef2f0; color: #3d4d46;
+      border-radius: 99px; padding: 4px 10px;
     }
     .chip.ok { background: #e4f5ea; color: var(--ok); }
     .chip.warn { background: #fff1d6; color: var(--warn); }
     .chip.bad { background: #fde8e8; color: var(--bad); }
-    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .stat { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
-    .stat.main { background: #f3f5fb; border-color: #b7c4ea; }
-    .stat .k { font-size: 12px; color: var(--muted); }
-    .stat .v { font: 650 22px/1.2 var(--mono); margin-top: 4px; }
-    .stat .s { font-size: 12px; color: var(--muted); margin-top: 4px; }
-    .note { font-size: 12px; color: var(--warn); background: #fff8eb; border: 1px solid #f0d9a8; border-radius: 8px; padding: 8px 10px; }
-    .okbox { font-size: 12px; color: var(--ok); background: #f3faf5; border: 1px solid #c6e6d0; border-radius: 8px; padding: 8px 10px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; color: var(--muted); font-weight: 600; padding: 5px 0; vertical-align: top; }
-    td { text-align: right; font-family: var(--mono); padding: 5px 0; }
-    tr { border-bottom: 1px solid var(--line); }
-    label.mini { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
-    label.chk { font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 6px; }
-    input[type=number] {
-      width: 100%; max-width: 120px; font: 13px var(--mono); padding: 5px 7px;
-      border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text);
+    .err { color: var(--bad); font-size: 13px; min-height: 1.1em; margin-top: 8px; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+    .fields.one { grid-template-columns: 1fr; }
+    label.f { font-size: 13px; font-weight: 600; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+    label.chk { font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 9px; }
+    .hint { font-size: 12.5px; font-weight: 500; color: #7a8982; line-height: 1.45; }
+    input[type=number], input[type=text], select {
+      width: 100%; height: 40px; font: 500 14px/1.2 var(--mono); padding: 8px 11px;
+      border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.92); color: var(--text);
     }
-    .err { color: var(--bad); font-size: 12px; min-height: 1.2em; }
-    .hint { font-size: 12px; color: var(--muted); margin: 0; }
-    code { font-family: var(--mono); font-size: 12px; }
+    input[type=text] { font-family: var(--sans); letter-spacing: 0; }
+    input:focus, select:focus {
+      outline: none; border-color: #5ea089;
+      box-shadow: 0 0 0 3px rgba(31, 107, 86, 0.14);
+    }
+    .checks { display: grid; gap: 10px; margin-top: 12px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .hero .lab {
+      font: 600 12px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted);
+    }
+    .hero .num {
+      font: 700 56px/1.05 var(--mono); letter-spacing: -0.05em; margin: 10px 0 6px;
+    }
+    .hero .num span { font-size: 20px; font-weight: 500; color: var(--muted); margin-left: 8px; }
+    .blocks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .blk {
+      border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(247,251,249,.75));
+    }
+    .blk .n { font: 600 12px/1.3 var(--sans); color: var(--muted); }
+    .blk .v { font: 650 18px/1.2 var(--mono); margin-top: 6px; }
+    .blk .p { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .bar { height: 14px; background: #e3ece7; border-radius: 99px; overflow: hidden; display: flex; margin: 6px 0 10px; }
+    .bar > i { display: block; height: 100%; }
+    .map h2 { margin: 0 0 14px; font-size: 20px; font-weight: 700; letter-spacing: -0.03em; }
+    .part { border-top: 1px solid var(--line); padding: 14px 0; }
+    .part:first-of-type { border-top: 0; padding-top: 0; }
+    .part-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 16px; }
+    .part-h b { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 8px; }
+    .part-h .g { font: 650 16px var(--mono); }
+    .eq {
+      margin: 10px 0 0; padding: 10px 12px; border-radius: 10px;
+      background: #f3f7f5; border: 1px solid #e1eae5;
+      font: 600 14px/1.5 var(--mono); color: #1b2420; word-break: break-all;
+    }
+    .sub { margin: 8px 0 0; padding: 0; list-style: none; }
+    .sub li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 7px 0; font-size: 14px; }
+    .sub .fml { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+    .sub .sv { font-family: var(--mono); }
+    .tree { margin: 4px 0 0; }
+    .tree details { border-top: 1px solid #e8eeea; }
+    .tree > details:first-child { border-top: 0; }
+    .tree summary { display: block; cursor: pointer; list-style: none; padding: 0; }
+    .tree summary::-webkit-details-marker, .tree summary::marker { display: none; content: ""; }
+    .tree .sum {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
+      align-items: start; padding: 8px 0;
+    }
+    .tree summary .nm::before {
+      content: "▸"; display: inline-block; width: 1.15em;
+      color: var(--accent); font-size: 12px;
+    }
+    .tree details[open] > summary .nm::before { content: "▾"; }
+    .tree summary:hover .nm { color: var(--accent); }
+    .tree .kids { padding-left: 16px; }
+    .tree .leaf {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
+      padding: 7px 0 7px 1.15em; border-top: 1px solid #e8eeea; font-size: 14px;
+    }
+    .tree .nm { font-size: 14px; font-weight: 500; }
+    .tree .fml { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+    .tree .sv { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
+    .note { margin: 10px 0 0; font-size: 13px; color: var(--muted); line-height: 1.55; }
+    .nline {
+      margin: 8px 0 0; padding: 8px 12px; border-radius: 10px;
+      background: #f3f7f5; border: 1px solid #e1eae5;
+      font: 600 13px/1.5 var(--mono); color: #1b2420; word-break: break-all;
+    }
+    .foot { font-size: 13px; color: var(--muted); margin-top: 10px; }
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; }
+      .side { position: static; }
+      .blocks { grid-template-columns: 1fr 1fr; }
+      .hero .num { font-size: 40px; }
+      header h1 { font-size: 24px; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <a class="home" href="./">← QWEN 小工具</a>
-    <h1>Megatron GRPO 显存建模</h1>
-    <p>只估 actor update 单进程 allocated：静态（W+G，Adam 在 GPU 再加 12 byte/参数）和高峰（再加词表 logits / CE / MoE 缓冲）。导入 config.json，切分与优化在本页改。</p>
+    <div class="header-inner">
+      <a class="home" href="./">← QWEN 小工具</a>
+      <h1>Megatron GRPO 显存建模</h1>
+      <p id="pageSub">只估 actor update 单进程：W+G（Adam 在 GPU 再加 12 byte/参数），高峰再加 logits / CE / MoE。整卡另加 HCCL / 碎片 / PTA / Device OS，不含 vLLM。</p>
+    </div>
   </header>
 
-  <div class="page">
-    <section class="card">
-      <div class="drop" id="dropCfg">
-        <strong>导入权重 config.json</strong>
-        拖入或点击选择 · 结构超参从这里读
-        <div class="fn" id="fnCfg">未选择</div>
-        <input id="fileCfg" type="file" accept=".json,application/json" hidden />
-      </div>
-      <button type="button" class="primary sm" id="btnPreset">预置 Qwen3.5 12L</button>
-      <div class="err" id="err"></div>
-      <div class="chips" id="chips"></div>
+  <div class="app">
+    <aside class="side">
+      <section class="card">
+        <p class="kicker">Configuration</p>
+        <label class="f">模型
+          <select id="ovModel"></select>
+        </label>
+        <label class="f" style="margin-top:10px;">自定义 ModelScope 仓库
+          <span class="hint">任意 owner/name，回车拉取。</span>
+          <input id="ovCustomRepo" type="text" placeholder="Qwen/Qwen3.5-9B" autocomplete="off" />
+        </label>
+        <div class="muted" id="cfgHint" style="margin-top:8px;">权重数据实时从 ModelScope 拉取。</div>
+        <div class="chips" id="chips"></div>
+        <div class="err" id="err"></div>
+      </section>
 
-      <div class="g">
-        <h3>切分</h3>
-        <div class="row">
-          <label class="mini">TP<input id="ovTP" type="number" min="1" step="1" /></label>
-          <label class="mini">PP<input id="ovPP" type="number" min="1" step="1" /></label>
-          <label class="mini">EP<input id="ovEP" type="number" min="1" step="1" /></label>
-          <label class="mini">ETP<input id="ovETP" type="number" min="1" step="1" /></label>
+      <section class="card">
+        <h3 class="sec">切分配置</h3>
+        <div class="fields">
+          <label class="f">TP<input id="ovTP" type="number" min="0" step="1" /></label>
+          <label class="f">PP<input id="ovPP" type="number" min="0" step="1" /></label>
+          <label class="f">EP<input id="ovEP" type="number" min="0" step="1" /></label>
+          <label class="f">ETP<input id="ovETP" type="number" min="0" step="1" /></label>
+          <label class="f">单卡容量 GiB<input id="ovHbm" type="number" min="0" step="1" /></label>
+          <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="0" step="1" /></label>
         </div>
-        <p class="hint">稠密按 TP×PP 切，路由专家按 EP×ETP×PP 切。卡数只走 DP，不进每卡公式。</p>
-      </div>
+        <p class="hint" style="margin:8px 0 0;">稠密按 TP×PP 切，路由专家按 EP×ETP×PP 切。卡数只走 DP，不进每卡公式。单卡容量只算余量。HCCL 按通信域个数 × BUFFSIZE × 2。</p>
+      </section>
 
-      <div class="g">
-        <h3>序列与 microbatch</h3>
-        <div class="row">
-          <label class="mini">mbs / 卡<input id="ovMbs" type="number" min="1" step="1" /></label>
-          <label class="mini">prompt<input id="ovPrompt" type="number" min="1" step="1" /></label>
-          <label class="mini">response<input id="ovResp" type="number" min="1" step="1" /></label>
+      <section class="card">
+        <h3 class="sec">序列与 microbatch</h3>
+        <div class="fields">
+          <label class="f">mbs / 卡<input id="ovMbs" type="number" min="0" step="1" /></label>
+          <label class="f">prompt<input id="ovPrompt" type="number" min="0" step="1" /></label>
+          <label class="f">response<input id="ovResp" type="number" min="0" step="1" /></label>
         </div>
-        <p class="hint">bshd 按下式 pad：T = mbs × (prompt + response)。影响高峰里的 logits / MoE 缓冲，不影响静态。</p>
-      </div>
+        <p class="hint" style="margin:8px 0 0;">bshd 按下式 pad：T = mbs × (prompt + response)。影响高峰里的 logits / MoE 缓冲，不影响静态。</p>
+      </section>
 
-      <div class="g">
-        <h3>显存优化</h3>
+      <section class="card">
+        <h3 class="sec">显存优化</h3>
         <div class="checks">
-          <label class="chk"><input id="ovParamOff" type="checkbox" checked /> param / grad offload</label>
-          <label class="chk"><input id="ovAdamOff" type="checkbox" checked /> Adam 在 CPU</label>
-          <label class="chk"><input id="ovRecompute" type="checkbox" checked /> full recompute</label>
-          <label class="mini">recompute 层数<input id="ovRecLayers" type="number" min="1" step="1" /></label>
+          <label class="chk"><input id="ovParamOff" type="checkbox" /> param / grad offload</label>
+          <label class="chk"><input id="ovAdamOff" type="checkbox" /> Adam 在 CPU</label>
+          <label class="chk"><input id="ovRecompute" type="checkbox" /> full recompute</label>
+        </div>
+        <label class="f" style="margin-top:12px;">recompute 层数
+          <input id="ovRecLayers" type="number" min="0" step="1" />
+        </label>
+        <div class="checks">
           <label class="chk"><input id="ovEntropy" type="checkbox" /> 算 entropy（多一份 logits clone）</label>
           <label class="chk"><input id="ovRemovePad" type="checkbox" /> remove_padding / THD（高峰按 pad 上界）</label>
         </div>
-        <p class="hint">update 入口仍会把 W+G 搬上卡，所以 param offload 不改静态/高峰。Adam 在 GPU 时静态再加 12 byte/参数。recompute 层数 ≠ 1 时高峰只作下界。</p>
-      </div>
-    </section>
+        <p class="hint" style="margin:8px 0 0;">update 入口仍会把 W+G 搬上卡，所以 param offload 不改静态/高峰。Adam 在 GPU 时静态再加 12 byte/参数。recompute 层数 ≠ 1 时高峰只作下界。</p>
+      </section>
+    </aside>
 
-    <section class="card">
-      <div class="stats">
-        <div class="stat main">
-          <div class="k" id="kStatic">理论静态</div>
-          <div class="v" id="vStatic">—</div>
-          <div class="s" id="vFormula"></div>
-        </div>
-        <div class="stat" id="peakBox">
-          <div class="k">理论高峰 · max allocated</div>
-          <div class="v" id="vPeak">—</div>
-          <div class="s" id="vPeakSub"></div>
-        </div>
-      </div>
-      <div id="note" class="okbox" style="margin-top:10px;"></div>
-    </section>
+    <main class="main">
+      <section class="card hero">
+        <div class="lab">Estimated per device</div>
+        <div class="num" id="vTotal">—<span>GiB</span></div>
+        <div class="muted" id="vTotalSub">npu-smi Used 口径</div>
+        <div class="bar" id="hbmBar" style="margin-top:14px;"></div>
+        <div class="muted" id="vRemain"></div>
+      </section>
 
-    <section class="card">
-      <table>
-        <tbody id="breakBody"></tbody>
-      </table>
-    </section>
+      <section class="card">
+        <p class="kicker">Breakdown</p>
+        <div class="blocks" id="blocks"></div>
+      </section>
+
+      <section class="card map">
+        <p class="kicker">Memory map</p>
+        <h2>显存构成</h2>
+        <div id="mapBody"></div>
+        <p class="foot" id="mapFoot"></p>
+      </section>
+    </main>
   </div>
 
 <script>
 const GIB = 1024 ** 3;
+const COLORS = {
+  weight: "var(--c-w)", grad: "var(--c-g)", adam: "var(--c-o)",
+  logits: "var(--c-a)", ce: "var(--c-d)", entropy: "var(--c-pile)", moe: "#c17a4a",
+  hccl: "var(--c-h)", frag: "var(--c-f)", pta: "var(--c-p)", os: "var(--c-os)",
+};
 
 const DEFAULT_12L = {
   vocab: 248320, hidden: 2048, layers: 12, experts: 256, moeI: 512, shareI: 512, denseI: 0,
@@ -181,6 +280,16 @@ const DEFAULT_12L = {
   tie: false, attnGate: true, layerTypes: [],
   arch: "Qwen3_5MoeForConditionalGeneration",
   topk: 8,
+};
+
+const EMPTY_MODEL = {
+  vocab: 0, hidden: 0, layers: 0, experts: 0, moeI: 0, shareI: 0, denseI: 0,
+  nQ: 0, nKV: 0, headDim: 0, fullInterval: 4,
+  gdnKH: 0, gdnKD: 0, gdnVH: 0, gdnVD: 0, gdnConv: 4, mtp: 0,
+  vitDepth: 0, vitH: 0, vitI: 0, vitOut: 0,
+  patch: 16, tPatch: 2, inCh: 3, merge: 2, nPos: 0,
+  tie: false, attnGate: false, layerTypes: [],
+  arch: "", topk: 8,
 };
 
 function defaultLayerTypes(L, iv) {
@@ -194,14 +303,69 @@ function defaultTrain() {
     paramOff: true, adamOff: true,
     recompute: true, recLayers: 1,
     entropy: false, removePadding: false,
-    bw: 2,
+    bw: 2, hbm: 64, hcclMB: 200,
+    fragG: 1, ptaG: 1, osG: 3.5,
   };
 }
 
+const QWEN_GROUPS = [
+  {
+    label: "Qwen3.8",
+    models: ["Qwen3.8-27B", "Qwen3.8-2.4T-A95B"],
+  },
+  {
+    label: "Qwen3.6",
+    models: ["Qwen3.6-27B", "Qwen3.6-35B-A3B", "Qwen3.6-35B-A3B (20L)"],
+  },
+  {
+    label: "Qwen3.5",
+    models: [
+      "Qwen3.5-35B-A3B (12L)",
+      "Qwen3.5-0.8B", "Qwen3.5-2B", "Qwen3.5-4B", "Qwen3.5-9B", "Qwen3.5-27B",
+      "Qwen3.5-35B-A3B", "Qwen3.5-122B-A10B", "Qwen3.5-397B-A17B",
+    ],
+  },
+  {
+    label: "Qwen3 VL",
+    models: [
+      "Qwen3-VL-8B-Instruct", "Qwen3-VL-32B-Instruct",
+      "Qwen3-VL-30B-A3B-Instruct", "Qwen3-VL-235B-A22B-Instruct",
+    ],
+  },
+  {
+    label: "Qwen3",
+    models: [
+      "Qwen3-0.6B", "Qwen3-1.7B", "Qwen3-4B", "Qwen3-8B", "Qwen3-14B", "Qwen3-32B",
+      "Qwen3-4B-Instruct", "Qwen3-8B-Instruct", "Qwen3-14B-Instruct", "Qwen3-32B-Instruct",
+      "Qwen3-30B-A3B", "Qwen3-30B-A3B-Thinking-2507",
+      "Qwen3-235B-A22B", "Qwen3-235B-A22B-Instruct-2507",
+      "Qwen3-Next-80B-A3B-Instruct",
+      "Qwen3-Coder-30B-A3B-Instruct", "Qwen3-Coder-480B-A35B-Instruct",
+    ],
+  },
+  {
+    label: "Qwen2.5 VL",
+    models: ["Qwen2.5-VL-7B-Instruct", "Qwen2.5-VL-72B-Instruct"],
+  },
+];
+
+function allQwenModels() {
+  return QWEN_GROUPS.flatMap((g) => g.models);
+}
+
+function repoForModel(name) {
+  if (name === "Qwen3.5-35B-A3B (12L)") return "local:12L";
+  if (name === "Qwen3.6-35B-A3B (20L)") return "local:20L";
+  return "Qwen/" + name;
+}
+
+const DEFAULT_20L = { ...DEFAULT_12L, layers: 20 };
+
 const S = {
+  modelName: "Qwen3.5-35B-A3B (12L)",
+  weightRepo: "local:12L",
   model: { ...DEFAULT_12L, layerTypes: defaultLayerTypes(12, 4) },
   train: defaultTrain(),
-  cfgName: "",
 };
 
 function $(id) { return document.getElementById(id); }
@@ -210,8 +374,35 @@ function pick(obj, keys, fb) {
   for (const k of keys) if (obj[k] != null) return obj[k];
   return fb;
 }
-function fmtG(x) { return (Math.round(x * 1000) / 1000).toFixed(3); }
-function fmtN(x) { return Math.round(x).toLocaleString("en-US"); }
+function isNum(x) { return typeof x === "number" && Number.isFinite(x); }
+function fmtG(x) {
+  if (!isNum(x)) return "null";
+  return (Math.round(x * 1000) / 1000).toFixed(3);
+}
+function fmtN(x) {
+  if (!isNum(x)) return "null";
+  return Math.round(x).toLocaleString("en-US");
+}
+function mem(x) { return isNum(x) ? fmtG(x) + " GiB" : "null"; }
+function sumNum() {
+  let s = 0;
+  for (const x of arguments) {
+    if (!isNum(x)) return null;
+    s += x;
+  }
+  return s;
+}
+function readNum(id) {
+  const raw = String($(id).value ?? "").trim();
+  if (raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+function writeNum(id, v) { $(id).value = v == null ? "" : String(v); }
+function pct(part, tot) {
+  if (!isNum(part) || !isNum(tot) || tot === 0) return "null";
+  return (part / tot * 100).toFixed(1) + "%";
+}
 
 function parseConfig(cfg) {
   const text = cfg.text_config || cfg.language_config || cfg;
@@ -236,7 +427,7 @@ function parseConfig(cfg) {
     gdnVD: pick(text, ["linear_value_head_dim"], 0),
     gdnConv: pick(text, ["linear_conv_kernel_dim"], 4),
     mtp: pick(text, ["mtp_num_hidden_layers"], 0),
-    topk: pick(text, ["num_experts_per_tok"], 8),
+    topk: pick(text, ["num_experts_per_tok"], 8) || 8,
     tie: !!(cfg.tie_word_embeddings ?? text.tie_word_embeddings),
     attnGate: !!text.attn_output_gate,
     vitDepth: pick(vis, ["depth"], 0),
@@ -257,23 +448,33 @@ function countParams(model) {
   const V = model.vocab, H = model.hidden, L = model.layers, E = model.experts, I = model.moeI;
   const embed = V * H;
   const lm = model.tie ? 0 : V * H;
-  let gateUp = 0, down = 0, moeOther = 0, denseMlp = 0;
+  const finalNorm = H;
+  const shareI = model.shareI || I;
+  let gateUp = 0, down = 0, router = 0, shared = 0, sharedGate = 0, denseMlp = 0;
   if (E > 0) {
     gateUp = E * H * 2 * I;
     down = E * I * H;
-    moeOther = E * H + 3 * H * (model.shareI || I) + H;
+    router = E * H;
+    shared = 3 * H * shareI;
+    sharedGate = H;
   } else if (model.denseI > 0) {
     denseMlp = 3 * H * model.denseI;
   }
+  const moeOther = router + shared + sharedGate;
   const mlpPer = gateUp + down + moeOther + denseMlp;
-  const fullAttn = H * model.nQ * model.headDim * (model.attnGate ? 2 : 1)
-    + H * model.nKV * model.headDim + H * model.nKV * model.headDim
-    + model.nQ * model.headDim * H + 2 * model.headDim;
+  const fullQ = H * model.nQ * model.headDim * (model.attnGate ? 2 : 1);
+  const fullK = H * model.nKV * model.headDim;
+  const fullV = H * model.nKV * model.headDim;
+  const fullO = model.nQ * model.headDim * H;
+  const fullQkNorm = 2 * model.headDim;
+  const fullAttn = fullQ + fullK + fullV + fullO + fullQkNorm;
   const hasGdn = (model.gdnKH || 0) > 0;
+  const dk = (model.gdnKH || 0) * (model.gdnKD || 0);
+  const dv = (model.gdnVH || 0) * (model.gdnVD || 0);
   const gdn = hasGdn
-    ? H * (2 * model.gdnKH * model.gdnKD + 2 * model.gdnVH * model.gdnVD + 2 * model.gdnVH)
-      + model.gdnVH * model.gdnVD * H
-      + model.gdnConv * (2 * model.gdnKH * model.gdnKD + model.gdnVH * model.gdnVD)
+    ? H * (2 * dk + 2 * dv + 2 * model.gdnVH)
+      + dv * H
+      + model.gdnConv * (2 * dk + dv)
       + 2 * model.gdnVH + model.gdnVD
     : 0;
   const types = (model.layerTypes || []).filter(Boolean);
@@ -287,236 +488,456 @@ function countParams(model) {
     nGdn = L - nFull;
   }
   const attn = nFull * fullAttn + nGdn * gdn;
-  const mtp = (model.mtp || 0) * (mlpPer + 2 * H + (hasGdn ? (fullAttn + gdn) / 2 : fullAttn));
-  const textN = embed + lm + H + attn + L * (mlpPer + 2 * H) + mtp;
+  const mtp = model.mtp || 0;
+  const mtpN = mtp * (mlpPer + 2 * H + (hasGdn ? (fullAttn + gdn) / 2 : fullAttn));
+  const mlpLayersN = L * (mlpPer + 2 * H);
+  const textN = embed + lm + finalNorm + attn + mlpLayersN + mtpN;
 
-  let vit = 0;
+  let vit = 0, vitPatch = 0, vitBlock = 0, vitMerger = 0;
   if (model.vitDepth > 0 && model.vitH > 0) {
     const Hv = model.vitH, Iv = model.vitI, out = model.vitOut, sm = model.merge;
-    const patch = model.inCh * model.tPatch * model.patch * model.patch * Hv + Hv;
-    const block = Hv * (Hv * 3) + (Hv * 3) + Hv * Hv + Hv + Hv * Iv + Iv + Iv * Hv + Hv + 2 * Hv;
-    const merger = Hv + (Hv * sm * sm) ** 2 + (Hv * sm * sm) + (Hv * sm * sm) * out + out + model.nPos * Hv;
-    vit = patch + model.vitDepth * block + merger;
+    vitPatch = model.inCh * model.tPatch * model.patch * model.patch * Hv + Hv;
+    vitBlock = Hv * (Hv * 3) + (Hv * 3) + Hv * Hv + Hv + Hv * Iv + Iv + Iv * Hv + Hv + 2 * Hv;
+    vitMerger = Hv + (Hv * sm * sm) ** 2 + (Hv * sm * sm) + (Hv * sm * sm) * out + out + model.nPos * Hv;
+    vit = vitPatch + model.vitDepth * vitBlock + vitMerger;
   }
   const N = textN + vit;
-  const nExpertAll = E > 0 ? (L + (model.mtp || 0)) * (gateUp + down) : 0;
+  const nExpertAll = E > 0 ? (L + mtp) * (gateUp + down) : 0;
   const nExpert = E > 0 ? L * (gateUp + down) : 0;
-  return { N, nExpert, nExpertAll, nDense: N - nExpertAll, nFull, nGdn, vit, text: textN };
+  return {
+    N, nExpert, nExpertAll, nDense: N - nExpertAll, nFull, nGdn, vit, textN,
+    embed, lm, finalNorm, gateUp, down, router, shared, sharedGate, denseMlp, moeOther, mlpPer, mlpLayersN,
+    fullQ, fullK, fullV, fullO, fullQkNorm, fullAttn, gdn, attn, mtp, mtpN,
+    vitPatch, vitBlock, vitMerger, vitDepth: model.vitDepth || 0,
+    V, H, L, E, I, shareI, denseI: model.denseI || 0, dk, dv,
+    nQ: model.nQ, nKV: model.nKV, headDim: model.headDim, attnGate: !!model.attnGate, tie: !!model.tie,
+    topk: model.topk || 8,
+  };
 }
+
+function posOk(x) { return isNum(x) && x > 0; }
 
 function compute(model, train) {
   const p = countParams(model);
-  const TP = Math.max(train.TP || 1, 1);
-  const PP = Math.max(train.PP || 1, 1);
-  const EP = Math.max(train.EP || 1, 1);
-  const ETP = Math.max(train.ETP || 1, 1);
-  const seq = (train.prompt || 0) + (train.resp || 0);
-  const perRank = p.nDense / (TP * PP) + p.nExpert / (EP * ETP * PP);
+  const TP = train.TP, PP = train.PP, EP = train.EP, ETP = train.ETP;
+  const warns = [];
+  const checkDiv = (name, x) => {
+    if (x == null) warns.push(name + " 为空，切分无法计算");
+    else if (x === 0) warns.push(name + " = 0，无法做除法，相关项为 null");
+    else if (x < 0) warns.push(name + " 为负数，相关项为 null");
+  };
+  checkDiv("TP", TP);
+  checkDiv("PP", PP);
+  checkDiv("EP", EP);
+  checkDiv("ETP", ETP);
+  const splitOk = posOk(TP) && posOk(PP) && posOk(EP) && posOk(ETP);
+  const perRank = splitOk ? p.nDense / (TP * PP) + p.nExpert / (EP * ETP * PP) : null;
   const bw = train.bw || 2;
-  const W = perRank * bw / GIB;
-  const G = perRank * bw / GIB;
-  const adam = perRank * 12 / GIB;
+  const W = splitOk ? perRank * bw / GIB : null;
+  const G = splitOk ? perRank * bw / GIB : null;
+  const adam = splitOk ? perRank * 12 / GIB : null;
   const AdamGpu = train.adamOff ? 0 : adam;
-  const staticWG = W + G;
-  const staticFull = staticWG + AdamGpu;
+  const staticWG = sumNum(W, G);
+  const staticFull = sumNum(staticWG, AdamGpu);
 
-  const T = Math.max(train.mbs || 1, 1) * seq;
-  const V = Math.max(model.vocab || 0, 0);
-  const H = Math.max(model.hidden || 0, 0);
-  const topk = Math.max(model.topk || 0, 0);
-  const Vloc = V / TP;
-  const logitsBf16 = T * Vloc * bw / GIB;
-  const ceFp32 = (bw === 2 && V > 0) ? T * Vloc * 4 / GIB : 0;
-  const entropyClone = train.entropy ? T * Vloc * bw / GIB : 0;
-  const moeBuf = (p.nExpert > 0 && topk > 0 && H > 0)
-    ? 2 * T * topk * H * bw / GIB
+  const mbs = train.mbs, prompt = train.prompt, resp = train.resp;
+  if (mbs == null) warns.push("mbs 为空，T 与高峰工作集为 null");
+  else if (mbs < 0) warns.push("mbs 为负数，T 与高峰工作集为 null");
+  if (prompt == null) warns.push("prompt 为空，T 与高峰工作集为 null");
+  else if (prompt < 0) warns.push("prompt 为负数");
+  if (resp == null) warns.push("response 为空，T 与高峰工作集为 null");
+  else if (resp < 0) warns.push("response 为负数");
+  const seq = (isNum(prompt) && prompt >= 0 && isNum(resp) && resp >= 0) ? prompt + resp : null;
+  const tOk = isNum(mbs) && mbs >= 0 && isNum(seq);
+  const T = tOk ? mbs * seq : null;
+  const V = p.V, H = p.H, topk = p.topk;
+  const Vloc = posOk(TP) ? V / TP : null;
+  const logitsBf16 = (isNum(T) && isNum(Vloc)) ? T * Vloc * bw / GIB : null;
+  const ceFp32 = (bw === 2 && V > 0 && isNum(T) && isNum(Vloc)) ? T * Vloc * 4 / GIB : (isNum(T) && isNum(Vloc) ? 0 : null);
+  const entropyClone = train.entropy
+    ? (isNum(T) && isNum(Vloc) ? T * Vloc * bw / GIB : null)
     : 0;
-  const ws = logitsBf16 + ceFp32 + entropyClone + moeBuf;
-  const peak = staticFull + ws;
-  const nKV = model.nKV || 2;
-  const tpIllegal = TP > nKV;
-  const recOk = !!(train.recompute && Number(train.recLayers || 1) === 1);
+  const moeBuf = (p.nExpert > 0 && topk > 0 && H > 0)
+    ? (isNum(T) ? 2 * T * topk * H * bw / GIB : null)
+    : 0;
+  const ws = sumNum(logitsBf16, ceFp32, entropyClone, moeBuf);
+  const peak = sumNum(staticFull, ws);
+  const nKV = model.nKV || 0;
+  const tpIllegal = posOk(TP) && isNum(nKV) && nKV > 0 && TP > nKV;
+  const recLayers = train.recLayers;
+  const recOk = !!(train.recompute && recLayers === 1);
   const peakOk = recOk && !tpIllegal;
+  if (tpIllegal) warns.push("TP=" + TP + " > n_kv_heads=" + nKV);
+  else if (!train.recompute || recLayers !== 1) warns.push("高峰未计入满层激活，只作下界（需 full recompute 且层数 = 1）");
+  if (isNum(PP) && PP > 1) warns.push("PP>1：静态按 PP 均分；词表 logits/CE 按最后一阶段整份加上");
+
+  const nComm = 1
+    + (posOk(TP) && TP > 1 ? 1 : 0)
+    + (posOk(PP) && PP > 1 ? 1 : 0)
+    + (posOk(EP) && EP > 1 ? 1 : 0)
+    + (posOk(ETP) && ETP > 1 ? 1 : 0);
+  const hcclMB = train.hcclMB;
+  let hcclG = null;
+  if (hcclMB == null) warns.push("HCCL_BUFFSIZE 为空，HCCL 为 null");
+  else if (hcclMB < 0) warns.push("HCCL_BUFFSIZE 为负数，HCCL 为 null");
+  else hcclG = nComm * hcclMB * 2 / 1024;
+  const fragG = train.fragG, ptaG = train.ptaG, osG = train.osG;
+  const deviceG = sumNum(peak, hcclG, fragG, ptaG, osG);
 
   return {
     ...p, TP, PP, EP, ETP, seq, T, Vloc, topk, perRank, nKV, tpIllegal, peakOk, recOk,
     W, G, adam, AdamGpu, staticWG, staticFull,
-    logitsBf16, ceFp32, entropyClone, moeBuf, ws, peak,
+    logitsBf16, ceFp32, entropyClone, moeBuf, ws, peak, warns, bw, recLayers,
+    mbs, prompt, resp,
+    hcclG, nComm, hcclMB, fragG, ptaG, osG, deviceG,
   };
 }
 
 function readForm() {
-  const n = (id, fb) => {
-    const v = Number($(id).value);
-    return Number.isFinite(v) && v > 0 ? v : fb;
-  };
-  S.train.TP = n("ovTP", S.train.TP);
-  S.train.PP = n("ovPP", S.train.PP);
-  S.train.EP = n("ovEP", S.train.EP);
-  S.train.ETP = n("ovETP", S.train.ETP);
-  S.train.mbs = n("ovMbs", S.train.mbs);
-  S.train.prompt = n("ovPrompt", S.train.prompt);
-  S.train.resp = n("ovResp", S.train.resp);
-  S.train.recLayers = n("ovRecLayers", S.train.recLayers);
-  S.train.paramOff = $("ovParamOff").checked;
-  S.train.adamOff = $("ovAdamOff").checked;
-  S.train.recompute = $("ovRecompute").checked;
-  S.train.entropy = $("ovEntropy").checked;
-  S.train.removePadding = $("ovRemovePad").checked;
+  const t = S.train;
+  t.TP = readNum("ovTP");
+  t.PP = readNum("ovPP");
+  t.EP = readNum("ovEP");
+  t.ETP = readNum("ovETP");
+  t.hbm = readNum("ovHbm");
+  t.hcclMB = readNum("ovHccl");
+  t.mbs = readNum("ovMbs");
+  t.prompt = readNum("ovPrompt");
+  t.resp = readNum("ovResp");
+  t.recLayers = readNum("ovRecLayers");
+  t.paramOff = $("ovParamOff").checked;
+  t.adamOff = $("ovAdamOff").checked;
+  t.recompute = $("ovRecompute").checked;
+  t.entropy = $("ovEntropy").checked;
+  t.removePadding = $("ovRemovePad").checked;
 }
 
 function writeForm() {
-  $("ovTP").value = S.train.TP;
-  $("ovPP").value = S.train.PP;
-  $("ovEP").value = S.train.EP;
-  $("ovETP").value = S.train.ETP;
-  $("ovMbs").value = S.train.mbs;
-  $("ovPrompt").value = S.train.prompt;
-  $("ovResp").value = S.train.resp;
-  $("ovRecLayers").value = S.train.recLayers;
-  $("ovParamOff").checked = !!S.train.paramOff;
-  $("ovAdamOff").checked = !!S.train.adamOff;
-  $("ovRecompute").checked = !!S.train.recompute;
-  $("ovEntropy").checked = !!S.train.entropy;
-  $("ovRemovePad").checked = !!S.train.removePadding;
+  const t = S.train;
+  $("ovModel").value = S.modelName;
+  writeNum("ovTP", t.TP);
+  writeNum("ovPP", t.PP);
+  writeNum("ovEP", t.EP);
+  writeNum("ovETP", t.ETP);
+  writeNum("ovHbm", t.hbm);
+  writeNum("ovHccl", t.hcclMB);
+  writeNum("ovMbs", t.mbs);
+  writeNum("ovPrompt", t.prompt);
+  writeNum("ovResp", t.resp);
+  writeNum("ovRecLayers", t.recLayers);
+  $("ovParamOff").checked = !!t.paramOff;
+  $("ovAdamOff").checked = !!t.adamOff;
+  $("ovRecompute").checked = !!t.recompute;
+  $("ovEntropy").checked = !!t.entropy;
+  $("ovRemovePad").checked = !!t.removePadding;
+}
+
+function partsOf(r) {
+  return [
+    { id: "weight", name: "权重", g: r.W, color: COLORS.weight },
+    { id: "grad", name: "梯度", g: r.G, color: COLORS.grad },
+    { id: "adam", name: "优化器", g: r.AdamGpu, color: COLORS.adam },
+    { id: "logits", name: "logits", g: r.logitsBf16, color: COLORS.logits },
+    { id: "ce", name: "CE", g: r.ceFp32, color: COLORS.ce },
+    { id: "entropy", name: "entropy", g: r.entropyClone, color: COLORS.entropy },
+    { id: "moe", name: "MoE 缓冲", g: r.moeBuf, color: COLORS.moe },
+    { id: "hccl", name: "HCCL", g: r.hcclG, color: COLORS.hccl },
+    { id: "frag", name: "内存碎片", g: r.fragG, color: COLORS.frag },
+    { id: "pta", name: "PTA", g: r.ptaG, color: COLORS.pta },
+    { id: "os", name: "Device OS", g: r.osG, color: COLORS.os },
+  ];
 }
 
 function render() {
-  writeForm();
   const r = compute(S.model, S.train);
-  const staticShow = r.AdamGpu > 0 ? r.staticFull : r.staticWG;
-
-  $("kStatic").textContent = r.AdamGpu > 0
-    ? "理论静态 · W+G+Adam"
-    : "理论静态 · update 期间 W+G";
-  $("vStatic").textContent = fmtG(staticShow) + " GiB";
-  $("vFormula").textContent = r.AdamGpu > 0
-    ? "W+G " + fmtG(r.staticWG) + " + Adam " + fmtG(r.AdamGpu)
-    : "4 byte/参数 · Adam 在 CPU";
+  const parts = partsOf(r);
+  const tot = r.deviceG;
+  const hbm = S.train.hbm;
 
   if (r.tpIllegal) {
-    $("vPeak").textContent = "非法";
-    $("vPeakSub").textContent = "TP=" + r.TP + " > n_kv_heads=" + r.nKV;
-    $("peakBox").style.opacity = ".7";
+    $("vTotal").innerHTML = "非法";
+    $("vTotalSub").textContent = "TP=" + r.TP + " > n_kv_heads=" + r.nKV;
   } else {
-    $("vPeak").textContent = fmtG(r.peak) + " GiB";
-    $("vPeakSub").textContent = (r.peakOk ? "" : "仅下界 · ")
-      + "logits " + fmtG(r.logitsBf16)
-      + " + CE " + fmtG(r.ceFp32)
-      + (r.entropyClone > 0 ? " + entropy " + fmtG(r.entropyClone) : "")
-      + (r.moeBuf > 0 ? " + MoE " + fmtG(r.moeBuf) : "")
-      + (r.PP > 1 ? " · PP 取最后一阶段包络" : "");
-    $("peakBox").style.opacity = r.peakOk ? "1" : ".75";
+    $("vTotal").innerHTML = isNum(tot) ? fmtG(tot) + "<span>GiB</span>" : "null";
+    $("vTotalSub").textContent = !isNum(tot)
+      ? "配置不完整或除数为 0，相关项为 null"
+      : (r.peakOk
+        ? "npu-smi Used 口径（含 HCCL / 碎片 / PTA / OS）"
+        : "npu-smi Used 口径 · 高峰仅下界");
   }
+  if (!isNum(hbm)) $("vRemain").textContent = "单卡容量为空，余量无法计算";
+  else if (!isNum(tot) || r.tpIllegal) $("vRemain").textContent = "预估为 null，余量无法计算";
+  else $("vRemain").textContent = "相对单卡 " + hbm + " GiB · 余量 " + fmtG(hbm - tot) + " GiB";
+  $("hbmBar").innerHTML = !r.tpIllegal && isNum(tot) && tot > 0
+    ? parts.map((p) => `<i style="width:${Math.max(0, (isNum(p.g) ? p.g : 0) / tot * 100)}%;background:${p.color}"></i>`).join("")
+    : "";
+
+  $("blocks").innerHTML = parts.map((p) =>
+    `<div class="blk"><div class="n">${p.name}</div><div class="v">${mem(p.g)}</div><div class="p">${pct(p.g, tot)} of total</div></div>`
+  ).join("");
 
   const chips = [
     r.tpIllegal ? `<span class="chip bad">TP 非法</span>`
       : r.peakOk ? `<span class="chip ok">高峰适用</span>`
       : `<span class="chip warn">高峰仅下界</span>`,
-    `<span class="chip">${S.model.layers}L · ${r.nFull} full / ${r.nGdn} GDN</span>`,
-    `<span class="chip">TP${r.TP} PP${r.PP} EP${r.EP} ETP${r.ETP}</span>`,
-    `<span class="chip">T=${fmtN(r.T)}${S.train.removePadding ? " · THD 上界" : " · bshd pad"}</span>`,
+    `<span class="chip">${S.modelName}</span>`,
+    `<span class="chip">${r.L}L · ${r.nFull} full / ${r.nGdn} GDN</span>`,
+    `<span class="chip">TP${r.TP == null ? "空" : r.TP} PP${r.PP == null ? "空" : r.PP} EP${r.EP == null ? "空" : r.EP} ETP${r.ETP == null ? "空" : r.ETP}</span>`,
+    `<span class="chip">T=${r.T == null ? "null" : fmtN(r.T)}${S.train.removePadding ? " · THD 上界" : " · bshd pad"}</span>`,
     `<span class="chip">${S.train.adamOff ? "Adam CPU" : "Adam GPU"}</span>`,
-    `<span class="chip">${S.train.recompute ? "recompute " + S.train.recLayers : "无 recompute"}</span>`,
-    S.train.entropy ? `<span class="chip warn">entropy clone</span>` : "",
+    `<span class="chip">${S.train.recompute ? "recompute " + (r.recLayers == null ? "空" : r.recLayers) : "无 recompute"}</span>`,
   ];
-  $("chips").innerHTML = chips.filter(Boolean).join("");
+  if (S.train.entropy) chips.push(`<span class="chip warn">entropy clone</span>`);
+  $("chips").innerHTML = chips.join("");
+  setErr((r.warns || []).join("；"));
 
-  const note = $("note");
-  if (r.tpIllegal) {
-    note.className = "note";
-    note.textContent = "Qwen3.5 要求 TP ≤ n_kv_heads（本结构 = " + r.nKV + "）。请降低 TP。";
-  } else if (!S.train.recompute || Number(S.train.recLayers) !== 1) {
-    note.className = "note";
-    note.textContent = "当前高峰未计入满层激活，只作下界。请打开 full recompute 且层数 = 1，或接受低估。";
-  } else if (r.PP > 1) {
-    note.className = "okbox";
-    note.textContent = "PP>1：静态按 PP 均分。词表 logits/CE 按最后一阶段整份加上。中间 stage 没有 lm_head，但还要一层激活（未逐 kernel 展开）。";
-  } else if (!S.train.adamOff) {
-    note.className = "okbox";
-    note.textContent = "Adam 在 GPU：静态含 12 byte/参数。高峰 = 该静态 + 词表 + MoE 缓冲。";
-  } else {
-    note.className = "okbox";
-    note.textContent = "高峰 = 静态 + T×(V/TP)×6 byte + 2×T×topk×H×2 byte。param offload 不改这两个数。不含 vLLM / npu-smi。";
+  const li = (title, fml, val) =>
+    `<li><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></li>`;
+  const leaf = (title, fml, val) =>
+    `<div class="leaf"><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div>`;
+  const branch = (title, fml, val, inner) =>
+    `<details><summary><div class="sum"><div class="nm">${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div></summary><div class="kids">${inner}</div></details>`;
+
+  const den = (isNum(r.TP) && isNum(r.PP)) ? r.TP * r.PP : null;
+  const expDen = (isNum(r.EP) && isNum(r.ETP) && isNum(r.PP)) ? r.EP * r.ETP * r.PP : null;
+  const wEq = !isNum(r.W)
+    ? `(N_dense/(TP·PP) + N_exp/(EP·ETP·PP)) × 2 = (${fmtN(r.nDense)} / (${r.TP == null ? "空" : r.TP}·${r.PP == null ? "空" : r.PP}) + ${fmtN(r.nExpert)} / (${r.EP == null ? "空" : r.EP}·${r.ETP == null ? "空" : r.ETP}·${r.PP == null ? "空" : r.PP})) × 2 = null`
+    : `(N_dense/(TP·PP) + N_exp/(EP·ETP·PP)) × 2 = (${fmtN(r.nDense)} / ${fmtN(den)} + ${fmtN(r.nExpert)} / ${fmtN(expDen)}) × 2 = ${fmtG(r.W)} GiB`;
+  const gEq = !isNum(r.G) ? `与权重同体积 × 2 byte = null` : `与权重同体积 × 2 byte = ${fmtG(r.G)} GiB`;
+  const oEq = S.train.adamOff
+    ? `Adam 在 CPU = 0 GiB`
+    : (!isNum(r.AdamGpu)
+      ? `shard × 12 = null`
+      : `shard × 12 = ${fmtN(r.perRank)} × 12 / 1024³ = ${fmtG(r.AdamGpu)} GiB`);
+  const logitsEq = !isNum(r.logitsBf16)
+    ? `T × (V/TP) × 2 = ${r.T == null ? "null" : fmtN(r.T)} × ${r.Vloc == null ? "null" : fmtN(r.Vloc)} × 2 = null`
+    : `T × (V/TP) × 2 = ${fmtN(r.T)} × ${fmtN(r.Vloc)} × 2 / 1024³ = ${fmtG(r.logitsBf16)} GiB`;
+  const ceEq = !isNum(r.ceFp32)
+    ? `T × (V/TP) × 4 = null`
+    : `T × (V/TP) × 4 = ${fmtN(r.T)} × ${fmtN(r.Vloc)} × 4 / 1024³ = ${fmtG(r.ceFp32)} GiB`;
+  const entEq = !S.train.entropy
+    ? `未启用 = 0 GiB`
+    : (!isNum(r.entropyClone) ? `T × (V/TP) × 2 = null` : `T × (V/TP) × 2 = ${fmtG(r.entropyClone)} GiB`);
+  const moeEq = r.nExpert <= 0
+    ? `无路由专家 = 0 GiB`
+    : (!isNum(r.moeBuf)
+      ? `2 × T × topk × H × 2 = null`
+      : `2 × T × topk × H × 2 = 2 × ${fmtN(r.T)} × ${r.topk} × ${r.H} × 2 / 1024³ = ${fmtG(r.moeBuf)} GiB`);
+  const hcclEq = !isNum(r.nComm) || !isNum(r.hcclMB)
+    ? `n_comm × BUFFSIZE × 2 = ${r.nComm} × ${r.hcclMB == null ? "空" : r.hcclMB} × 2 = null`
+    : `n_comm × BUFFSIZE × 2 = ${r.nComm} × ${r.hcclMB} × 2 = ${fmtN(r.nComm * r.hcclMB * 2)} MB = ${fmtG(r.hcclG)} GiB`;
+
+  const vocabN = r.embed + r.lm + r.finalNorm;
+  const mlpNormN = r.L * 2 * r.H;
+  let mlpKids;
+  if (r.E > 0) {
+    mlpKids =
+      branch("一层 MLP", "gate_up + down + router + shared", fmtN(r.mlpPer),
+        leaf("gate_up", `E × H × 2I`, fmtN(r.gateUp)) +
+        leaf("down", `E × I × H`, fmtN(r.down)) +
+        leaf("router", `E × H`, fmtN(r.router)) +
+        leaf("shared", `3 × H × I_share`, fmtN(r.shared)) +
+        leaf("shared_gate", `H`, fmtN(r.sharedGate))) +
+      leaf("L 层 RMSNorm", `L × 2H`, fmtN(mlpNormN));
+  } else if (r.denseI > 0) {
+    mlpKids =
+      leaf("一层 dense MLP", `3 × H × I`, fmtN(r.denseMlp)) +
+      leaf("L 层 RMSNorm", `L × 2H`, fmtN(mlpNormN));
   }
+  let attnKids =
+    branch("一层 full", "q + k + v + o + q/k_norm", fmtN(r.fullAttn),
+      leaf("q", `H × n_q × d${r.attnGate ? " × 2" : ""}`, fmtN(r.fullQ)) +
+      leaf("k / v", `H × n_kv × d × 2`, fmtN(r.fullK + r.fullV)) +
+      leaf("o", `(n_q × d) × H`, fmtN(r.fullO)) +
+      leaf("q/k_norm", `2d`, fmtN(r.fullQkNorm))) +
+    leaf(`${r.nFull} 层 full`, `${r.nFull} × ${fmtN(r.fullAttn)}`, fmtN(r.nFull * r.fullAttn));
+  if (r.nGdn > 0) {
+    attnKids +=
+      leaf("一层 GDN", `d_k=${r.dk}，d_v=${r.dv}`, fmtN(r.gdn)) +
+      leaf(`${r.nGdn} 层 GDN`, `${r.nGdn} × ${fmtN(r.gdn)}`, fmtN(r.nGdn * r.gdn));
+  }
+  let textKids =
+    branch("词表", "embed + lm_head + RMSNorm", fmtN(vocabN),
+      leaf("embed", `V × H`, fmtN(r.embed)) +
+      leaf("lm_head", r.tie ? "tie" : `V × H`, fmtN(r.lm)) +
+      leaf("最终 RMSNorm", `H`, fmtN(r.finalNorm)));
+  if (mlpKids) textKids += branch("L 层 MLP + RMSNorm", `L × (MLP + 2H)`, fmtN(r.mlpLayersN), mlpKids);
+  textKids += branch("注意力", `${r.nFull} full + ${r.nGdn} GDN`, fmtN(r.attn), attnKids);
+  if (r.mtp > 0) textKids += leaf("MTP", `${r.mtp} 层`, fmtN(r.mtpN));
+  let vitKids;
+  if (r.vitDepth > 0) {
+    vitKids =
+      leaf("patch embed", `in_ch × t_patch × patch² × H_v + H_v`, fmtN(r.vitPatch)) +
+      leaf(`${r.vitDepth} blocks`, `${r.vitDepth} × ${fmtN(r.vitBlock)}`, fmtN(r.vitDepth * r.vitBlock)) +
+      leaf("merger + 位置编码", `merger + n_pos × H_v`, fmtN(r.vitMerger));
+  }
+  const nTree =
+    `<div class="tree">` +
+    branch("Text", `词表 + MLP + 注意力`, fmtN(r.textN), textKids) +
+    (vitKids
+      ? branch("ViT", "patch + blocks + merger", fmtN(r.vit), vitKids)
+      : leaf("ViT", "无视觉塔", "0")) +
+    `</div>` +
+    `<div class="nline">N = Text + ViT = ${fmtN(r.textN)} + ${fmtN(r.vit)} = ${fmtN(r.N)}</div>` +
+    `<div class="nline">N_dense / N_exp = ${fmtN(r.nDense)} / ${fmtN(r.nExpert)}（上卡 expert 不含 MTP）</div>`;
 
-  const rows = [
-    ["总参数 N", fmtN(r.N) + "  (" + (r.N / 1e9).toFixed(3) + " B)"],
-    ["稠密 / 路由专家（上卡，不含 MTP expert）", (r.nDense / 1e9).toFixed(3) + " / " + (r.nExpert / 1e9).toFixed(3) + " B"],
-    ["每卡 shard = N_dense/(TP·PP) + N_exp/(EP·ETP·PP)", (r.perRank / 1e9).toFixed(3) + " B"],
-    ["W / G / Adam（若在 GPU）", fmtG(r.W) + " / " + fmtG(r.G) + " / " + fmtG(r.AdamGpu) + " GiB"],
-    ["静态", fmtG(staticShow) + " GiB"],
-    ["T = mbs × (prompt+response)", fmtN(r.T)],
-    ["词表 logits bf16 = T × (V/TP) × 2", fmtG(r.logitsBf16) + " GiB · V/TP=" + fmtN(r.Vloc)],
-    ["CE fp32 = T × (V/TP) × 4", fmtG(r.ceFp32) + " GiB"],
-    ["entropy logits clone", r.entropyClone > 0 ? fmtG(r.entropyClone) + " GiB" : "0"],
-    ["MoE send+recv = 2 × T × topk × H × 2", fmtG(r.moeBuf) + " GiB · topk=" + (r.topk || 0)],
-    ["工作集合计", fmtG(r.ws) + " GiB"],
-    ["高峰 = 静态 + 工作集", fmtG(r.peak) + " GiB"],
-  ];
-  $("breakBody").innerHTML = rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+  $("mapBody").innerHTML = [
+    partBlock("权重", COLORS.weight, r.W, wEq, nTree),
+    partBlock("梯度", COLORS.grad, r.G, gEq,
+      `<ul class="sub">${li("bf16", `与权重同 numel`, mem(r.G))}</ul>`),
+    partBlock("优化器", COLORS.adam, r.AdamGpu, oEq,
+      `<ul class="sub">${li("Adam", S.train.adamOff ? "在 CPU，不计入 allocated" : "12 byte/参数", mem(r.AdamGpu))}</ul>`),
+    partBlock("logits", COLORS.logits, r.logitsBf16, logitsEq,
+      `<ul class="sub">` +
+      li("T", `mbs × (prompt + response)`, r.T == null ? "null" : fmtN(r.T)) +
+      li("V/TP", `${fmtN(r.V)} / ${r.TP == null ? "空" : r.TP}`, r.Vloc == null ? "null" : fmtN(r.Vloc)) +
+      `</ul>`),
+    partBlock("CE", COLORS.ce, r.ceFp32, ceEq,
+      `<ul class="sub">${li("fp32", `T × (V/TP) × 4`, mem(r.ceFp32))}</ul>`),
+    partBlock("entropy", COLORS.entropy, r.entropyClone, entEq,
+      `<ul class="sub">${li("logits clone", S.train.entropy ? "多一份 bf16 logits" : "未启用", mem(r.entropyClone))}</ul>`),
+    partBlock("MoE 缓冲", COLORS.moe, r.moeBuf, moeEq,
+      `<ul class="sub">${li("send+recv", `2 × T × topk × H × 2`, mem(r.moeBuf))}</ul>`),
+    partBlock("HCCL", COLORS.hccl, r.hcclG, hcclEq,
+      `<ul class="sub">` +
+      li("n_comm", `1（DP） + (TP>1) + (PP>1) + (EP>1) + (ETP>1)`, `${r.nComm}`) +
+      li("收发缓冲", `每个通信域一份 send、一份 recv，故 ×2`, `×2`) +
+      li("HCCL", hcclEq, mem(r.hcclG)) +
+      `</ul>`),
+    partBlock("内存碎片", COLORS.frag, r.fragG, `1 GiB（预估）`,
+      `<ul class="sub">${li("allocator 空洞", `不在 pickle allocated`, mem(r.fragG))}</ul>`),
+    partBlock("PTA", COLORS.pta, r.ptaG, `1 GiB（预估）`,
+      `<ul class="sub">${li("运行时 / workspace", `预估`, mem(r.ptaG))}</ul>`),
+    partBlock("Device OS", COLORS.os, r.osG, `3.5 GiB（预估）`,
+      `<ul class="sub">${li("驱动 / 设备 OS", `npu-smi 可见`, mem(r.osG))}</ul>`),
+  ].join("");
+
+  $("mapFoot").textContent = "N 只在权重展开。高峰 allocated = W+G" + (S.train.adamOff ? "" : "+Adam") + " + logits + CE + MoE。整卡再加 HCCL / 碎片 / PTA / Device OS。param offload 不改 allocated。";
+}
+
+function partBlock(name, color, g, eq, inner) {
+  return `<div class="part"><div class="part-h"><div><b style="background:${color}"></b>${name}</div><div class="g">${mem(g)}</div></div><div class="eq">${eq}</div>${inner}</div>`;
 }
 
 function setErr(msg) { $("err").textContent = msg || ""; }
 
-function applyPreset() {
-  S.model = { ...DEFAULT_12L, layerTypes: defaultLayerTypes(12, 4) };
-  S.train = defaultTrain();
-  S.cfgName = "";
-  $("fnCfg").textContent = "预置：Qwen3.5-35B 12L 结构";
-  $("btnPreset").classList.add("active");
-  setErr("");
-  render();
+function fillModelSelect() {
+  $("ovModel").innerHTML = QWEN_GROUPS.map((g) =>
+    `<optgroup label="${g.label}">` +
+    g.models.map((name) => `<option value="${name}">${name}</option>`).join("") +
+    `</optgroup>`
+  ).join("");
+  if (!allQwenModels().includes(S.modelName)) S.modelName = "Qwen3.5-35B-A3B (12L)";
+  $("ovModel").value = S.modelName;
 }
 
-function onCfgText(text, name) {
-  const cfg = JSON.parse(text);
-  const m = parseConfig(cfg);
-  if (!m.hidden || !m.layers) throw new Error("未读到 hidden_size / num_hidden_layers");
-  S.model = { ...DEFAULT_12L, ...m };
-  if (!S.model.layerTypes.length) {
-    S.model.layerTypes = defaultLayerTypes(S.model.layers, S.model.fullInterval || 4);
+function configUrls(repo) {
+  return [
+    `https://modelscope.cn/models/${repo}/resolve/master/config.json`,
+    `https://www.modelscope.cn/models/${repo}/resolve/master/config.json`,
+    `https://huggingface.co/${repo}/raw/main/config.json`,
+  ];
+}
+
+async function fetchRemoteConfig(repo) {
+  let lastErr;
+  for (const url of configUrls(repo)) {
+    try {
+      const res = await fetch(url, { mode: "cors" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+    }
   }
-  S.cfgName = name;
-  $("fnCfg").textContent = name + " · L=" + m.layers + " · " + (m.arch || "");
-  $("btnPreset").classList.remove("active");
-  setErr("");
+  throw lastErr || new Error("拉取失败");
+}
+
+function applyParsedModel(m, resetTrain) {
+  if (!m.layerTypes || !m.layerTypes.length) {
+    m.layerTypes = defaultLayerTypes(m.layers, m.fullInterval || 4);
+  }
+  S.model = m;
+  if (resetTrain) S.train = defaultTrain();
+  writeForm();
   render();
 }
 
-const box = $("dropCfg"), input = $("fileCfg");
-box.addEventListener("click", () => input.click());
-box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("over"); });
-box.addEventListener("dragleave", () => box.classList.remove("over"));
-box.addEventListener("drop", (e) => {
+let fetchGen = 0;
+async function loadWeight(repo, resetTrain) {
+  const gen = ++fetchGen;
+  S.weightRepo = repo;
+  if (repo === "local:12L") {
+    setErr("");
+    $("cfgHint").textContent = "本地 12 层预置，不从 ModelScope 拉取。";
+    applyParsedModel({ ...DEFAULT_12L, layerTypes: defaultLayerTypes(12, 4) }, resetTrain);
+    return;
+  }
+  if (repo === "local:20L") {
+    setErr("");
+    $("cfgHint").textContent = "本地 20 层预置，不从 ModelScope 拉取。";
+    applyParsedModel({ ...DEFAULT_20L, layerTypes: defaultLayerTypes(20, 4) }, resetTrain);
+    return;
+  }
+  $("cfgHint").textContent = "正在从 ModelScope 拉取 config.json…";
+  setErr("");
+  try {
+    const cfg = await fetchRemoteConfig(repo);
+    if (gen !== fetchGen) return;
+    const m = parseConfig(cfg);
+    if (!m.hidden || !m.layers) throw new Error("未能读取 hidden_size / num_hidden_layers");
+    $("cfgHint").textContent = "权重数据实时从 ModelScope 拉取。";
+    applyParsedModel({ ...EMPTY_MODEL, ...m }, resetTrain);
+  } catch (e) {
+    if (gen !== fetchGen) return;
+    $("cfgHint").textContent = "权重数据实时从 ModelScope 拉取。";
+    setErr("拉取 " + repo + " 的 config.json 失败：" + (e && e.message ? e.message : e));
+  }
+}
+
+function onModelPicked() {
+  S.modelName = $("ovModel").value;
+  $("ovCustomRepo").value = "";
+  loadWeight(repoForModel(S.modelName), true);
+}
+
+function onCustomRepo() {
+  const raw = String($("ovCustomRepo").value || "").trim()
+    .replace(/^https?:\/\/(www\.)?modelscope\.cn\/models\//, "")
+    .replace(/\/+$/, "");
+  if (!raw || !raw.includes("/")) {
+    setErr("自定义仓库请写成 owner/name，例如 Qwen/Qwen3.5-9B");
+    return;
+  }
+  const name = raw.split("/")[1];
+  if (allQwenModels().includes(name)) {
+    S.modelName = name;
+    fillModelSelect();
+  }
+  loadWeight(raw, true);
+}
+
+fillModelSelect();
+$("ovModel").addEventListener("change", onModelPicked);
+$("ovCustomRepo").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    onCustomRepo();
+  }
+});
+$("mapBody").addEventListener("click", (e) => {
+  const sum = e.target.closest(".tree summary");
+  if (!sum) return;
   e.preventDefault();
-  box.classList.remove("over");
-  const f = e.dataTransfer.files[0];
-  if (f) f.text().then((t) => onCfgText(t, f.name)).catch((err) => setErr("config 解析失败：" + err.message));
+  const d = sum.parentElement;
+  if (d && d.tagName === "DETAILS") d.open = !d.open;
 });
-input.addEventListener("change", () => {
-  const f = input.files[0];
-  if (f) f.text().then((t) => onCfgText(t, f.name)).catch((err) => setErr("config 解析失败：" + err.message));
+document.querySelectorAll("input, select").forEach((el) => {
+  if (el.id === "ovModel" || el.id === "ovCustomRepo") return;
+  el.addEventListener("input", () => { readForm(); render(); });
+  el.addEventListener("change", () => { readForm(); render(); });
 });
-
-$("btnPreset").addEventListener("click", applyPreset);
-
-["ovTP", "ovPP", "ovEP", "ovETP", "ovMbs", "ovPrompt", "ovResp", "ovRecLayers"].forEach((id) => {
-  $(id).addEventListener("input", () => {
-    readForm();
-    $("btnPreset").classList.remove("active");
-    render();
-  });
-});
-["ovParamOff", "ovAdamOff", "ovRecompute", "ovEntropy", "ovRemovePad"].forEach((id) => {
-  $(id).addEventListener("change", () => {
-    readForm();
-    $("btnPreset").classList.remove("active");
-    render();
-  });
-});
-
-applyPreset();
+loadWeight(repoForModel(S.modelName), true);
 </script>
 </body>
 </html>
