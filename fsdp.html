@@ -674,8 +674,6 @@ function render() {
   const oEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
     ? `N/P × 8 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 8 = null`
     : `N/P × 8 = ${fmtN(r.N)} / ${r.P} × 8 = ${fmtN(r.N / r.P * 8)} B = ${fmtG(r.adamG)} GiB`;
-  const nCommF = r.EP > 1 ? 1 : 0;
-  const nCommC = r.CP > 1 ? 1 : 0;
   const hcclEq = !isNum(r.nComm) || !isNum(r.hcclMB)
     ? `n_comm × BUFFSIZE × 2 = ${r.nComm} × ${r.hcclMB == null ? "空" : r.hcclMB} × 2 = null`
     : `n_comm × BUFFSIZE × 2 = ${r.nComm} × ${r.hcclMB} × 2 = ${fmtN(r.nComm * r.hcclMB * 2)} MB = ${fmtG(r.hcclG)} GiB`;
@@ -744,13 +742,12 @@ function render() {
     `<div class="tree">` +
     branch("U", (!r.wrap && r.E > 0) ? `(gate_up + down) × 2 / 1024³` : `一层 numel × 2 / 1024³`, fmtG(r.Ufull) + " GiB", uKids) +
     `</div>` +
-    `<div class="nline">U = ${(!r.wrap && r.E > 0) ? fmtN(r.expertNumel) + " × 2 / 1024³" : fmtN(r.unitNumel) + " × 2 / 1024³"} = ${fmtG(r.Ufull)} GiB</div>` +
-    `<div class="nline">${dynEq} = (${fmtG(r.agG)} + ${fmtG(r.copyG)} + ${fmtG(r.prefG)}) + ${fmtG(r.reduceInG)} + ${fmtG(r.gmmG)} = ${fmtG(r.dynG)} GiB</div>`;
+    `<div class="nline">U = ${(!r.wrap && r.E > 0) ? fmtN(r.expertNumel) + " × 2 / 1024³" : fmtN(r.unitNumel) + " × 2 / 1024³"} = ${fmtG(r.Ufull)} GiB</div>`;
 
   $("mapBody").innerHTML = [
     partBlock("权重", COLORS.weight, r.paramG,
       wEq,
-      nTree + `<ul class="sub">${li("每卡分片", wEq, mem(r.paramG))}</ul>`),
+      nTree),
     partBlock("梯度", COLORS.grad, r.gradStaticG,
       gEq,
       `<ul class="sub">${li("静态 bf16", `与规约分片同时占用`, mem(r.gradStaticG))}</ul>`),
@@ -780,9 +777,8 @@ function render() {
       hcclEq,
       `<ul class="sub">` +
       li("n_comm", `1（FSDP/DP 基域） + (EP>1 ? 1 : 0) + (CP>1 ? 1 : 0)`, `${r.nComm}`) +
-      li("本页默认", `EP=${r.EP}、CP=${r.CP}，所以 1 + ${nCommF} + ${nCommC} = ${r.nComm}`, `${r.nComm}`) +
       li("收发缓冲", `每个通信域一份 send、一份 recv，故 ×2`, `×2`) +
-      li("最终", hcclEq, mem(r.hcclG)) +
+      li("HCCL", hcclEq, mem(r.hcclG)) +
       `</ul>`),
     partBlock("内存碎片", COLORS.frag, r.fragG,
       `1 GiB（预估）`,
