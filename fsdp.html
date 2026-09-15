@@ -659,10 +659,26 @@ function render() {
     `<details><summary><div class="sum"><div class="nm">${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div></summary><div class="kids">${inner}</div></details>`;
 
   const pileEq = !isNum(r.P) || r.P === 0
-    ? `L × 2U / P　P 无效`
-    : `L × 2U / P　每份 ${fmtG(isNum(r.pileEachG) ? r.pileEachG * 1024 : null)} MiB`;
-  const actEq = `liveLayers × B × S × H × 2`;
-  const dynEq = `(2 + prefetch)U + 2U + GMM`;
+    ? `L × 2U / P = ${r.nPile} × 2 × ${fmtG(r.Ufull)} / ${r.P == null ? "空" : r.P} = null`
+    : `L × 2U / P = ${r.nPile} × 2 × ${fmtG(r.Ufull)} / ${r.P} = ${fmtG(r.pileG)} GiB`;
+  const actEq = isNum(r.liveLayers) && isNum(r.samplesFwd) && isNum(r.seq)
+    ? `liveLayers × B × S × H × 2 = ${r.liveLayers} × ${r.samplesFwd} × ${r.seq} × ${r.H} × 2 / 1024³ = ${fmtG(r.actG)} GiB`
+    : `liveLayers × B × S × H × 2 = ${r.liveLayers} × ${r.samplesFwd == null ? "null" : r.samplesFwd} × ${r.seq == null ? "空" : r.seq} × ${r.H} × 2 = null`;
+  const dynEq = `(all-gather + copy_out + prefetch) + foreach_reduce + GMM`;
+  const wEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
+    ? `N/P × 2 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 2 = null`
+    : `N/P × 2 = ${fmtN(r.N)} / ${r.P} × 2 = ${fmtN(r.N / r.P * 2)} B = ${fmtG(r.paramG)} GiB`;
+  const gEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
+    ? `N/P × 2 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 2 = null`
+    : `N/P × 2 = ${fmtN(r.N)} / ${r.P} × 2 = ${fmtN(r.N / r.P * 2)} B = ${fmtG(r.gradStaticG)} GiB`;
+  const oEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
+    ? `N/P × 8 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 8 = null`
+    : `N/P × 8 = ${fmtN(r.N)} / ${r.P} × 8 = ${fmtN(r.N / r.P * 8)} B = ${fmtG(r.adamG)} GiB`;
+  const nCommF = r.EP > 1 ? 1 : 0;
+  const nCommC = r.CP > 1 ? 1 : 0;
+  const hcclEq = !isNum(r.nComm) || !isNum(r.hcclMB)
+    ? `n_comm × BUFFSIZE × 2 = ${r.nComm} × ${r.hcclMB == null ? "空" : r.hcclMB} × 2 = null`
+    : `n_comm × BUFFSIZE × 2 = ${r.nComm} × ${r.hcclMB} × 2 = ${fmtN(r.nComm * r.hcclMB * 2)} MB = ${fmtG(r.hcclG)} GiB`;
 
   const vocabN = r.embed + r.lm + r.finalNorm;
   const mlpNormN = r.L * 2 * r.H;
@@ -728,24 +744,25 @@ function render() {
     `<div class="tree">` +
     branch("U", (!r.wrap && r.E > 0) ? `(gate_up + down) × 2 / 1024³` : `一层 numel × 2 / 1024³`, fmtG(r.Ufull) + " GiB", uKids) +
     `</div>` +
-    `<div class="nline">U = ${(!r.wrap && r.E > 0) ? fmtN(r.expertNumel) + " × 2 / 1024³" : fmtN(r.unitNumel) + " × 2 / 1024³"} = ${fmtG(r.Ufull)} GiB</div>`;
+    `<div class="nline">U = ${(!r.wrap && r.E > 0) ? fmtN(r.expertNumel) + " × 2 / 1024³" : fmtN(r.unitNumel) + " × 2 / 1024³"} = ${fmtG(r.Ufull)} GiB</div>` +
+    `<div class="nline">${dynEq} = (${fmtG(r.agG)} + ${fmtG(r.copyG)} + ${fmtG(r.prefG)}) + ${fmtG(r.reduceInG)} + ${fmtG(r.gmmG)} = ${fmtG(r.dynG)} GiB</div>`;
 
   $("mapBody").innerHTML = [
     partBlock("权重", COLORS.weight, r.paramG,
-      `N / P × 2 B`,
-      nTree + `<ul class="sub">${li("每卡分片", `N/P × 2`, mem(r.paramG))}</ul>`),
+      wEq,
+      nTree + `<ul class="sub">${li("每卡分片", wEq, mem(r.paramG))}</ul>`),
     partBlock("梯度", COLORS.grad, r.gradStaticG,
-      `N / P × 2 B`,
+      gEq,
       `<ul class="sub">${li("静态 bf16", `与规约分片同时占用`, mem(r.gradStaticG))}</ul>`),
     partBlock("优化器", COLORS.adam, r.adamG,
-      `N / P × 8 B`,
+      oEq,
       `<ul class="sub">${li("AdamW", `exp_avg + exp_avg_sq，两份 fp32`, mem(r.adamG))}</ul>`),
     partBlock("动态内存", COLORS.dyn, r.dynG,
       dynEq,
       uTree + `<ul class="sub">` +
       li("all-gather", `U`, mem(r.agG)) +
       li("copy_out", `U`, mem(r.copyG)) +
-      li("prefetch", `prefetch × U　=${r.prefetch}`, mem(r.prefG)) +
+      li("prefetch", `prefetch × U　prefetch=${r.prefetch}`, mem(r.prefG)) +
       li("foreach_reduce 输入", `2U　fp32`, mem(r.reduceInG)) +
       li("GMM grad_weight", r.gmmG ? `U` : `未启用`, mem(r.gmmG)) +
       `</ul>`),
@@ -760,8 +777,13 @@ function render() {
       (r.dispatchG > 0 ? li("EP dispatch", `T × topk × H × 2`, mem(r.dispatchG)) : "") +
       `</ul>`),
     partBlock("HCCL", COLORS.hccl, r.hcclG,
-      `n_comm × HCCL_BUFFSIZE × 2`,
-      `<ul class="sub">${li("收发缓冲", `n_comm=${r.nComm}，BUFFSIZE=${r.hcclMB == null ? "空" : r.hcclMB} MB`, mem(r.hcclG))}</ul>`),
+      hcclEq,
+      `<ul class="sub">` +
+      li("n_comm", `1（FSDP/DP 基域） + (EP>1 ? 1 : 0) + (CP>1 ? 1 : 0)`, `${r.nComm}`) +
+      li("本页默认", `EP=${r.EP}、CP=${r.CP}，所以 1 + ${nCommF} + ${nCommC} = ${r.nComm}`, `${r.nComm}`) +
+      li("收发缓冲", `每个通信域一份 send、一份 recv，故 ×2`, `×2`) +
+      li("最终", hcclEq, mem(r.hcclG)) +
+      `</ul>`),
     partBlock("内存碎片", COLORS.frag, r.fragG,
       `1 GiB（预估）`,
       `<ul class="sub">${li("allocator 空洞", `不在 pickle allocated`, mem(r.fragG))}</ul>`),
