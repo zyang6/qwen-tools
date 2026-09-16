@@ -142,7 +142,8 @@
     .eq {
       margin: 10px 0 0; padding: 10px 12px; border-radius: 10px;
       background: #f3f7f5; border: 1px solid #e1eae5;
-      font: 600 14px/1.5 var(--mono); color: #1b2420; word-break: break-all;
+      font: 600 14px/1.5 var(--mono); color: #1b2420;
+      white-space: nowrap; overflow-x: auto;
     }
     .sub { margin: 8px 0 0; padding: 0; list-style: none; }
     .sub li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 7px 0; font-size: 14px; }
@@ -164,6 +165,7 @@
     .tree details[open] > summary .nm::before { content: "▾"; }
     .tree summary:hover .nm { color: var(--accent); }
     .tree .kids { padding-left: 16px; }
+    .tree .kids .sub { margin: 0; }
     .tree .leaf {
       display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
       padding: 7px 0 7px 1.15em; border-top: 1px solid #e8eeea; font-size: 14px;
@@ -173,9 +175,9 @@
     .tree .sv { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
     .note { margin: 10px 0 0; font-size: 13px; color: var(--muted); line-height: 1.55; }
     .nline {
-      margin: 8px 0 0; padding: 8px 12px; border-radius: 10px;
-      background: #f3f7f5; border: 1px solid #e1eae5;
-      font: 600 13px/1.5 var(--mono); color: #1b2420; word-break: break-all;
+      margin: 8px 0 0;
+      font: 600 13px/1.5 var(--mono); color: #1b2420;
+      white-space: nowrap; overflow-x: auto;
     }
     .foot { font-size: 13px; color: var(--muted); margin-top: 10px; }
     @media (max-width: 980px) {
@@ -192,7 +194,6 @@
     <div class="header-inner">
       <a class="home" href="./">← QWEN 小工具</a>
       <h1>FSDP 显存建模</h1>
-      <p id="pageSub">模型清单对齐推理页主流 Qwen；config 从 ModelScope 拉取。MoE 走 6U，Dense 两套高峰取较大者。也可填自定义仓库。</p>
     </div>
   </header>
 
@@ -752,9 +753,6 @@ function render() {
   const hbm = S.train.hbm;
 
   $("vTotal").innerHTML = isNum(tot) ? fmtG(tot) + "<span>GiB</span>" : "null";
-  $("pageSub").textContent = r.isMoe
-    ? "MoE：静态 N/P×10 + 梯度×2 + 6U + 激活 + 运行时预留"
-    : "Dense：静态 N/P×10 + 梯度×2 +（层 5U 或 3U_head，取较大）+ 激活 + 运行时预留";
   $("vTotalSub").textContent = isNum(tot)
     ? "npu-smi Used 口径（含 HCCL / 碎片 / PTA / OS）"
     : "配置不完整或除数为 0，相关项为 null";
@@ -785,8 +783,8 @@ function render() {
     `<li><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></li>`;
   const leaf = (title, fml, val) =>
     `<div class="leaf"><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div>`;
-  const branch = (title, fml, val, inner) =>
-    `<details><summary><div class="sum"><div class="nm">${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div></summary><div class="kids">${inner}</div></details>`;
+  const branch = (title, fml, val, inner, open) =>
+    `<details${open ? " open" : ""}><summary><div class="sum"><div class="nm">${title}${fml ? `<div class="fml">${fml}</div>` : ""}</div><div class="sv">${val}</div></div></summary><div class="kids">${inner}</div></details>`;
 
   const actEq = isNum(r.liveLayers) && isNum(r.samplesFwd) && isNum(r.seq)
     ? `liveLayers × B × S × H × 2 = ${r.liveLayers} × ${r.samplesFwd} × ${r.seq} × ${r.H} × 2 / 1024³ = ${fmtG(r.actG)} GiB`
@@ -794,13 +792,22 @@ function render() {
   const useHead = !r.isMoe && r.denseScheme === "B";
   const dynEq = useHead
     ? `U_head + 2 U_head`
-    : `(all-gather + copy_out + prefetch) + foreach_reduce` + (r.isMoe ? ` + GMM` : ``);
+    : `all-gather + copy_out + prefetch + foreach_reduce` + (r.isMoe ? ` + GMM` : ``);
+  const headNumel = r.V * r.H;
+  let uEq;
+  if (useHead) {
+    uEq = `U_head = V × H × 2 / 1024³ = ${fmtN(headNumel)} × 2 / 1024³ = ${fmtG(r.uHeadG)} GiB`;
+  } else if (!r.wrap && r.E > 0) {
+    uEq = `U = (gate_up + down) × 2 / 1024³ = ${fmtN(r.expertNumel)} × 2 / 1024³ = ${fmtG(r.Ufull)} GiB`;
+  } else {
+    uEq = `U = 一层 numel × 2 / 1024³ = ${fmtN(r.unitNumel)} × 2 / 1024³ = ${fmtG(r.Ufull)} GiB`;
+  }
   const wEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
     ? `N/P × 2 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 2 = null`
     : `N/P × 2 = ${fmtN(r.N)} / ${r.P} × 2 = ${fmtN(r.N / r.P * 2)} B = ${fmtG(r.paramG)} GiB`;
   const gEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
-    ? `2 × N/P × 2 = 2 × ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 2 = null`
-    : `2 × N/P × 2 = 2 × ${fmtN(r.N)} / ${r.P} × 2 = ${fmtN(r.N / r.P * 4)} B = ${fmtG(r.gradG)} GiB`;
+    ? `N/P × 4 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 4 = null`
+    : `N/P × 4 = ${fmtN(r.N)} / ${r.P} × 4 = ${fmtN(r.N / r.P * 4)} B = ${fmtG(r.gradG)} GiB`;
   const oEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
     ? `N/P × 8 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 8 = null`
     : `N/P × 8 = ${fmtN(r.N)} / ${r.P} × 8 = ${fmtN(r.N / r.P * 8)} B = ${fmtG(r.adamG)} GiB`;
@@ -856,46 +863,26 @@ function render() {
   }
   const nTree =
     `<div class="tree">` +
-    branch("Text", `词表 + MLP + 注意力`, fmtN(r.textN), textKids) +
-    (vitKids
-      ? branch("ViT", r.freezeVisual ? "冻结" : "patch + blocks + merger", fmtN(r.vit), vitKids)
-      : leaf("ViT", "无视觉塔", "0")) +
-    `</div>` +
-    `<div class="nline">N = Text + ViT = ${fmtN(r.textN)} + ${fmtN(r.vit)} = ${fmtN(r.N)}</div>`;
+    branch("N = Text + ViT", `${fmtN(r.textN)} + ${fmtN(r.vit)}`, fmtN(r.N),
+      branch("Text", `词表 + MLP + 注意力`, fmtN(r.textN), textKids) +
+      (vitKids
+        ? branch("ViT", r.freezeVisual ? "冻结" : "patch + blocks + merger", fmtN(r.vit), vitKids)
+        : leaf("ViT", "无视觉塔", "0"))) +
+    `</div>`;
 
-  let uKids, uTree;
-  if (useHead) {
-    const headNumel = r.V * r.H;
-    uKids = leaf("embed / lm_head", `V × H`, fmtN(headNumel));
-    uTree =
-      `<div class="tree">` +
-      branch("U_head", `V × H × 2 / 1024³`, fmtG(r.uHeadG) + " GiB", uKids) +
-      `</div>` +
-      `<div class="nline">U_head = ${fmtN(headNumel)} × 2 / 1024³ = ${fmtG(r.uHeadG)} GiB</div>`;
-  } else {
-    uKids = (!r.wrap && r.E > 0)
-      ? leaf("gate_up", `E × H × 2I`, fmtN(r.gateUp)) +
-        leaf("down", `E × I × H`, fmtN(r.down)) +
-        leaf("numel", `gate_up + down`, fmtN(r.expertNumel))
-      : leaf("numel", r.wrap ? "一层 wrap" : "一层", fmtN(r.unitNumel));
-    uTree =
-      `<div class="tree">` +
-      branch("U", (!r.wrap && r.E > 0) ? `(gate_up + down) × 2 / 1024³` : `一层 numel × 2 / 1024³`, fmtG(r.Ufull) + " GiB", uKids) +
-      `</div>` +
-      `<div class="nline">U = ${(!r.wrap && r.E > 0) ? fmtN(r.expertNumel) + " × 2 / 1024³" : fmtN(r.unitNumel) + " × 2 / 1024³"} = ${fmtG(r.Ufull)} GiB</div>`;
-  }
-  const dynKids = useHead
-    ? uTree + `<ul class="sub">` +
-      li("未分片参数", `U_head`, mem(r.uHeadG)) +
-      li("foreach_reduce 输入", `2U_head　fp32`, mem(isNum(r.uHeadG) ? 2 * r.uHeadG : null)) +
-      `</ul>`
-    : uTree + `<ul class="sub">` +
-      li("all-gather", `U`, mem(r.agG)) +
+  const dynLis = useHead
+    ? li("未分片参数", `U_head`, mem(r.uHeadG)) +
+      li("foreach_reduce 输入", `2U_head　fp32`, mem(isNum(r.uHeadG) ? 2 * r.uHeadG : null))
+    : li("all-gather", `U`, mem(r.agG)) +
       li("copy_out", `U`, mem(r.copyG)) +
       li("prefetch", `prefetch × U　prefetch=${r.prefetch}`, mem(r.prefG)) +
       li("foreach_reduce 输入", `2U　fp32`, mem(r.reduceInG)) +
-      (r.isMoe ? li("GMM grad_weight", r.gmmG ? `U` : `未启用`, mem(r.gmmG)) : "") +
-      `</ul>`;
+      (r.isMoe ? li("GMM grad_weight", r.gmmG ? `U` : `未启用`, mem(r.gmmG)) : "");
+  const dynKids =
+    `<div class="nline">${uEq}</div>` +
+    `<div class="tree">` +
+    branch("动态模块", "", mem(r.dynG), `<ul class="sub">` + dynLis + `</ul>`) +
+    `</div>`;
 
   $("mapBody").innerHTML = [
     partBlock("权重", COLORS.weight, r.paramG,
@@ -906,11 +893,7 @@ function render() {
       `<ul class="sub">${li("AdamW", `exp_avg + exp_avg_sq，两份 fp32`, mem(r.adamG))}</ul>`),
     partBlock("梯度", COLORS.grad, r.gradG,
       gEq,
-      `<p class="note">reduce-scatter 且 reduce_dtype=fp32 时，各层 reduce 输出是一份 fp32 梯度分片，和已切好的 bf16 分片同时占着。</p>` +
-      `<ul class="sub">` +
-      li("bf16 分片", `N/P × 2`, mem(r.gradBf16G)) +
-      li("fp32 分片", `reduce-scatter 输出，同 numel 覆盖`, mem(r.gradBf16G)) +
-      `</ul>`),
+      `<p class="note">reduce-scatter 且 reduce_dtype=fp32 时，各层 reduce 输出是一份 fp32 梯度分片。</p>`),
     partBlock("动态内存", COLORS.dyn, r.dynG,
       dynEq,
       dynKids),
@@ -923,25 +906,19 @@ function render() {
       `</ul>`),
     partBlock("HCCL", COLORS.hccl, r.hcclG,
       hcclEq,
-      `<ul class="sub">` +
-      li("n_comm", `1（FSDP/DP 基域） + (EP>1 ? 1 : 0) + (CP>1 ? 1 : 0)`, `${r.nComm}`) +
-      li("收发缓冲", `每个通信域一份 send、一份 recv，故 ×2`, `×2`) +
-      li("HCCL", hcclEq, mem(r.hcclG)) +
-      `</ul>`),
+      ""),
     partBlock("内存碎片", COLORS.frag, r.fragG,
       `1 GiB（预估）`,
-      `<ul class="sub">${li("allocator 空洞", `不在 pickle allocated`, mem(r.fragG))}</ul>`),
+      ""),
     partBlock("PTA", COLORS.pta, r.ptaG,
       `1 GiB（预估）`,
-      `<ul class="sub">${li("运行时 / workspace", `预估`, mem(r.ptaG))}</ul>`),
+      ""),
     partBlock("Device OS", COLORS.os, r.osG,
       `3.5 GiB（预估）`,
-      `<ul class="sub">${li("驱动 / 设备 OS", `npu-smi 可见`, mem(r.osG))}</ul>`),
+      ""),
   ].join("");
 
-  $("mapFoot").textContent = useHead
-    ? "N 只在权重展开；当前砖是 embed 的 U_head，不单列各层分片。"
-    : "N 只在权重展开；U 只在动态内存展开。";
+  $("mapFoot").textContent = "";
 }
 
 function partBlock(name, color, g, eq, inner, right) {
@@ -1048,13 +1025,6 @@ $("ovCustomRepo").addEventListener("keydown", (e) => {
     e.preventDefault();
     onCustomRepo();
   }
-});
-$("mapBody").addEventListener("click", (e) => {
-  const sum = e.target.closest(".tree summary");
-  if (!sum) return;
-  e.preventDefault();
-  const d = sum.parentElement;
-  if (d && d.tagName === "DETAILS") d.open = !d.open;
 });
 document.querySelectorAll("input, select").forEach((el) => {
   if (el.id === "ovModel" || el.id === "ovCustomRepo") return;
