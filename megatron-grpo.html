@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>Megatron GRPO 显存建模</title>
+  <title>Megatron 显存建模</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -61,7 +61,11 @@
       margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.15;
     }
     header p {
-      margin: 8px 0 0; font-size: 15px; color: var(--muted); max-width: 46em; line-height: 1.55;
+      margin: 8px 0 0; font-size: 15px; color: var(--muted); max-width: 52em; line-height: 1.55;
+    }
+    header p code {
+      font: 600 13px/1.4 var(--mono); color: var(--text);
+      background: rgba(255,255,255,.7); border-radius: 6px; padding: 1px 6px;
     }
     .app {
       display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 18px;
@@ -91,7 +95,6 @@
     .fields.one { grid-template-columns: 1fr; }
     label.f { font-size: 13px; font-weight: 600; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
     label.chk { font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 9px; }
-    .hint { font-size: 12.5px; font-weight: 500; color: #7a8982; line-height: 1.45; }
     input[type=number], input[type=text], select {
       width: 100%; height: 40px; font: 500 14px/1.2 var(--mono); padding: 8px 11px;
       border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.92); color: var(--text);
@@ -129,7 +132,8 @@
     .eq {
       margin: 10px 0 0; padding: 10px 12px; border-radius: 10px;
       background: #f3f7f5; border: 1px solid #e1eae5;
-      font: 600 14px/1.5 var(--mono); color: #1b2420; word-break: break-all;
+      font: 600 14px/1.5 var(--mono); color: #1b2420;
+      white-space: nowrap; overflow-x: auto;
     }
     .sub { margin: 8px 0 0; padding: 0; list-style: none; }
     .sub li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 7px 0; font-size: 14px; }
@@ -151,6 +155,7 @@
     .tree details[open] > summary .nm::before { content: "▾"; }
     .tree summary:hover .nm { color: var(--accent); }
     .tree .kids { padding-left: 16px; }
+    .tree .kids .sub { margin: 0; }
     .tree .leaf {
       display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
       padding: 7px 0 7px 1.15em; border-top: 1px solid #e8eeea; font-size: 14px;
@@ -160,9 +165,9 @@
     .tree .sv { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
     .note { margin: 10px 0 0; font-size: 13px; color: var(--muted); line-height: 1.55; }
     .nline {
-      margin: 8px 0 0; padding: 8px 12px; border-radius: 10px;
-      background: #f3f7f5; border: 1px solid #e1eae5;
-      font: 600 13px/1.5 var(--mono); color: #1b2420; word-break: break-all;
+      margin: 8px 0 0;
+      font: 600 13px/1.5 var(--mono); color: #1b2420;
+      white-space: nowrap; overflow-x: auto;
     }
     .foot { font-size: 13px; color: var(--muted); margin-top: 10px; }
     @media (max-width: 980px) {
@@ -178,8 +183,7 @@
   <header>
     <div class="header-inner">
       <a class="home" href="./">← QWEN 小工具</a>
-      <h1>Megatron GRPO 显存建模</h1>
-      <p id="pageSub">只估 actor update 单进程：W+G（Adam 在 GPU 再加 12 byte/参数），高峰再加 logits / CE / MoE。整卡另加 HCCL / 碎片 / PTA / Device OS，不含 vLLM。</p>
+      <h1>Megatron 显存建模</h1>
     </div>
   </header>
 
@@ -191,10 +195,8 @@
           <select id="ovModel"></select>
         </label>
         <label class="f" style="margin-top:10px;">自定义 ModelScope 仓库
-          <span class="hint">任意 owner/name，回车拉取。</span>
           <input id="ovCustomRepo" type="text" placeholder="Qwen/Qwen3.5-9B" autocomplete="off" />
         </label>
-        <div class="muted" id="cfgHint" style="margin-top:8px;">权重数据实时从 ModelScope 拉取。</div>
         <div class="chips" id="chips"></div>
         <div class="err" id="err"></div>
       </section>
@@ -209,7 +211,6 @@
           <label class="f">单卡容量 GiB<input id="ovHbm" type="number" min="0" step="1" /></label>
           <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="0" step="1" /></label>
         </div>
-        <p class="hint" style="margin:8px 0 0;">稠密按 TP×PP 切，路由专家按 EP×ETP×PP 切。卡数只走 DP，不进每卡公式。单卡容量只算余量。HCCL 按通信域个数 × BUFFSIZE × 2。</p>
       </section>
 
       <section class="card">
@@ -219,24 +220,15 @@
           <label class="f">prompt<input id="ovPrompt" type="number" min="0" step="1" /></label>
           <label class="f">response<input id="ovResp" type="number" min="0" step="1" /></label>
         </div>
-        <p class="hint" style="margin:8px 0 0;">bshd 按下式 pad：T = mbs × (prompt + response)。影响高峰里的 logits / MoE 缓冲，不影响静态。</p>
       </section>
 
       <section class="card">
         <h3 class="sec">显存优化</h3>
         <div class="checks">
-          <label class="chk"><input id="ovParamOff" type="checkbox" /> param / grad offload</label>
           <label class="chk"><input id="ovAdamOff" type="checkbox" /> Adam 在 CPU</label>
           <label class="chk"><input id="ovRecompute" type="checkbox" /> full recompute</label>
+          <label class="chk"><input id="ovEntropy" type="checkbox" /> 算 entropy</label>
         </div>
-        <label class="f" style="margin-top:12px;">recompute 层数
-          <input id="ovRecLayers" type="number" min="0" step="1" />
-        </label>
-        <div class="checks">
-          <label class="chk"><input id="ovEntropy" type="checkbox" /> 算 entropy（多一份 logits clone）</label>
-          <label class="chk"><input id="ovRemovePad" type="checkbox" /> remove_padding / THD（高峰按 pad 上界）</label>
-        </div>
-        <p class="hint" style="margin:8px 0 0;">update 入口仍会把 W+G 搬上卡，所以 param offload 不改静态/高峰。Adam 在 GPU 时静态再加 12 byte/参数。recompute 层数 ≠ 1 时高峰只作下界。</p>
       </section>
     </aside>
 
@@ -244,7 +236,7 @@
       <section class="card hero">
         <div class="lab">Estimated per device</div>
         <div class="num" id="vTotal">—<span>GiB</span></div>
-        <div class="muted" id="vTotalSub">npu-smi Used 口径</div>
+        <div class="muted" id="vTotalSub"></div>
         <div class="bar" id="hbmBar" style="margin-top:14px;"></div>
         <div class="muted" id="vRemain"></div>
       </section>
@@ -267,7 +259,7 @@
 const GIB = 1024 ** 3;
 const COLORS = {
   weight: "var(--c-w)", grad: "var(--c-g)", adam: "var(--c-o)",
-  logits: "var(--c-a)", ce: "var(--c-d)", entropy: "var(--c-pile)", moe: "#c17a4a",
+  act: "var(--c-a)", dyn: "var(--c-d)",
   hccl: "var(--c-h)", frag: "var(--c-f)", pta: "var(--c-p)", os: "var(--c-os)",
 };
 
@@ -300,9 +292,9 @@ function defaultTrain() {
   return {
     TP: 2, PP: 1, EP: 8, ETP: 1,
     mbs: 1, prompt: 1024, resp: 2048,
-    paramOff: true, adamOff: true,
+    adamOff: true,
     recompute: true, recLayers: 1,
-    entropy: false, removePadding: false,
+    entropy: false,
     bw: 2, hbm: 64, hcclMB: 200,
     fragG: 1, ptaG: 1, osG: 3.5,
   };
@@ -502,10 +494,9 @@ function countParams(model) {
     vit = vitPatch + model.vitDepth * vitBlock + vitMerger;
   }
   const N = textN + vit;
-  const nExpertAll = E > 0 ? (L + mtp) * (gateUp + down) : 0;
   const nExpert = E > 0 ? L * (gateUp + down) : 0;
   return {
-    N, nExpert, nExpertAll, nDense: N - nExpertAll, nFull, nGdn, vit, textN,
+    N, nExpert, nDense: N - nExpert, nFull, nGdn, vit, textN,
     embed, lm, finalNorm, gateUp, down, router, shared, sharedGate, denseMlp, moeOther, mlpPer, mlpLayersN,
     fullQ, fullK, fullV, fullO, fullQkNorm, fullAttn, gdn, attn, mtp, mtpN,
     vitPatch, vitBlock, vitMerger, vitDepth: model.vitDepth || 0,
@@ -531,11 +522,17 @@ function compute(model, train) {
   checkDiv("EP", EP);
   checkDiv("ETP", ETP);
   const splitOk = posOk(TP) && posOk(PP) && posOk(EP) && posOk(ETP);
-  const perRank = splitOk ? p.nDense / (TP * PP) + p.nExpert / (EP * ETP * PP) : null;
+  const nRankDense = splitOk ? p.nDense / (TP * PP) : null;
+  const nRankExp = splitOk ? p.nExpert / (EP * ETP * PP) : null;
+  const perRank = sumNum(nRankDense, nRankExp);
   const bw = train.bw || 2;
-  const W = splitOk ? perRank * bw / GIB : null;
-  const G = splitOk ? perRank * bw / GIB : null;
-  const adam = splitOk ? perRank * 12 / GIB : null;
+  const Wd = isNum(nRankDense) ? nRankDense * bw / GIB : null;
+  const We = isNum(nRankExp) ? nRankExp * bw / GIB : null;
+  const W = sumNum(Wd, We);
+  const G = W;
+  const Gd = Wd;
+  const Ge = We;
+  const adam = isNum(perRank) ? perRank * 12 / GIB : null;
   const AdamGpu = train.adamOff ? 0 : adam;
   const staticWG = sumNum(W, G);
   const staticFull = sumNum(staticWG, AdamGpu);
@@ -550,26 +547,27 @@ function compute(model, train) {
   const seq = (isNum(prompt) && prompt >= 0 && isNum(resp) && resp >= 0) ? prompt + resp : null;
   const tOk = isNum(mbs) && mbs >= 0 && isNum(seq);
   const T = tOk ? mbs * seq : null;
-  const V = p.V, H = p.H, topk = p.topk;
+  const V = p.V, H = p.H, L = p.L;
   const Vloc = posOk(TP) ? V / TP : null;
-  const logitsBf16 = (isNum(T) && isNum(Vloc)) ? T * Vloc * bw / GIB : null;
-  const ceFp32 = (bw === 2 && V > 0 && isNum(T) && isNum(Vloc)) ? T * Vloc * 4 / GIB : (isNum(T) && isNum(Vloc) ? 0 : null);
+  const vocabWs = (isNum(T) && isNum(Vloc)) ? 2 * T * Vloc * 4 / GIB : null;
   const entropyClone = train.entropy
     ? (isNum(T) && isNum(Vloc) ? T * Vloc * bw / GIB : null)
     : 0;
-  const moeBuf = (p.nExpert > 0 && topk > 0 && H > 0)
-    ? (isNum(T) ? 2 * T * topk * H * bw / GIB : null)
-    : 0;
-  const ws = sumNum(logitsBf16, ceFp32, entropyClone, moeBuf);
+  const recOk = !!train.recompute;
+  const actExtra = train.recompute
+    ? 0
+    : ((isNum(T) && H > 0 && L > 0) ? L * T * H * 2 / GIB : null);
+  const ws = sumNum(vocabWs, entropyClone, actExtra);
   const peak = sumNum(staticFull, ws);
+  const dynG = sumNum(vocabWs, entropyClone);
+  const actG = actExtra;
   const nKV = model.nKV || 0;
   const tpIllegal = posOk(TP) && isNum(nKV) && nKV > 0 && TP > nKV;
-  const recLayers = train.recLayers;
-  const recOk = !!(train.recompute && recLayers === 1);
   const peakOk = recOk && !tpIllegal;
   if (tpIllegal) warns.push("TP=" + TP + " > n_kv_heads=" + nKV);
-  else if (!train.recompute || recLayers !== 1) warns.push("高峰未计入满层激活，只作下界（需 full recompute 且层数 = 1）");
-  if (isNum(PP) && PP > 1) warns.push("PP>1：静态按 PP 均分；词表 logits/CE 按最后一阶段整份加上");
+  else if (!train.recompute) warns.push("已关 recompute：高峰另加约 L×T×H×2");
+  if (isNum(PP) && PP > 1) warns.push("PP>1：静态按 PP 均分；词表按最后 stage 整份加上（中间 stage 没有词表项）");
+  if (p.mtp > 0) warns.push("MTP=" + p.mtp + " 已计入 N；路由专家桶只用 L 层（N_expert），MTP 专家走 N_dense");
 
   const nComm = 1
     + (posOk(TP) && TP > 1 ? 1 : 0)
@@ -582,14 +580,16 @@ function compute(model, train) {
   else if (hcclMB < 0) warns.push("HCCL_BUFFSIZE 为负数，HCCL 为 null");
   else hcclG = nComm * hcclMB * 2 / 1024;
   const fragG = train.fragG, ptaG = train.ptaG, osG = train.osG;
-  const deviceG = sumNum(peak, hcclG, fragG, ptaG, osG);
+  const runtimeG = sumNum(hcclG, fragG, ptaG, osG);
+  const deviceG = sumNum(peak, runtimeG);
 
   return {
-    ...p, TP, PP, EP, ETP, seq, T, Vloc, topk, perRank, nKV, tpIllegal, peakOk, recOk,
-    W, G, adam, AdamGpu, staticWG, staticFull,
-    logitsBf16, ceFp32, entropyClone, moeBuf, ws, peak, warns, bw, recLayers,
+    ...p, TP, PP, EP, ETP, seq, T, Vloc, perRank, nRankDense, nRankExp,
+    nKV, tpIllegal, peakOk, recOk,
+    W, G, Wd, We, Gd, Ge, adam, AdamGpu, staticWG, staticFull,
+    vocabWs, entropyClone, actExtra, dynG, actG, ws, peak, warns, bw,
     mbs, prompt, resp,
-    hcclG, nComm, hcclMB, fragG, ptaG, osG, deviceG,
+    hcclG, nComm, hcclMB, fragG, ptaG, osG, runtimeG, deviceG,
   };
 }
 
@@ -604,12 +604,9 @@ function readForm() {
   t.mbs = readNum("ovMbs");
   t.prompt = readNum("ovPrompt");
   t.resp = readNum("ovResp");
-  t.recLayers = readNum("ovRecLayers");
-  t.paramOff = $("ovParamOff").checked;
   t.adamOff = $("ovAdamOff").checked;
   t.recompute = $("ovRecompute").checked;
   t.entropy = $("ovEntropy").checked;
-  t.removePadding = $("ovRemovePad").checked;
 }
 
 function writeForm() {
@@ -624,23 +621,18 @@ function writeForm() {
   writeNum("ovMbs", t.mbs);
   writeNum("ovPrompt", t.prompt);
   writeNum("ovResp", t.resp);
-  writeNum("ovRecLayers", t.recLayers);
-  $("ovParamOff").checked = !!t.paramOff;
   $("ovAdamOff").checked = !!t.adamOff;
   $("ovRecompute").checked = !!t.recompute;
   $("ovEntropy").checked = !!t.entropy;
-  $("ovRemovePad").checked = !!t.removePadding;
 }
 
 function partsOf(r) {
   return [
     { id: "weight", name: "权重", g: r.W, color: COLORS.weight },
-    { id: "grad", name: "梯度", g: r.G, color: COLORS.grad },
     { id: "adam", name: "优化器", g: r.AdamGpu, color: COLORS.adam },
-    { id: "logits", name: "logits", g: r.logitsBf16, color: COLORS.logits },
-    { id: "ce", name: "CE", g: r.ceFp32, color: COLORS.ce },
-    { id: "entropy", name: "entropy", g: r.entropyClone, color: COLORS.entropy },
-    { id: "moe", name: "MoE 缓冲", g: r.moeBuf, color: COLORS.moe },
+    { id: "grad", name: "梯度", g: r.G, color: COLORS.grad },
+    { id: "dyn", name: "动态内存", g: r.dynG, color: COLORS.dyn },
+    { id: "act", name: "激活值", g: r.actG, color: COLORS.act },
     { id: "hccl", name: "HCCL", g: r.hcclG, color: COLORS.hccl },
     { id: "frag", name: "内存碎片", g: r.fragG, color: COLORS.frag },
     { id: "pta", name: "PTA", g: r.ptaG, color: COLORS.pta },
@@ -676,18 +668,16 @@ function render() {
     `<div class="blk"><div class="n">${p.name}</div><div class="v">${mem(p.g)}</div><div class="p">${pct(p.g, tot)} of total</div></div>`
   ).join("");
 
+  const isMoe = (S.model.experts || 0) > 0;
   const chips = [
-    r.tpIllegal ? `<span class="chip bad">TP 非法</span>`
-      : r.peakOk ? `<span class="chip ok">高峰适用</span>`
-      : `<span class="chip warn">高峰仅下界</span>`,
-    `<span class="chip">${S.modelName}</span>`,
-    `<span class="chip">${r.L}L · ${r.nFull} full / ${r.nGdn} GDN</span>`,
-    `<span class="chip">TP${r.TP == null ? "空" : r.TP} PP${r.PP == null ? "空" : r.PP} EP${r.EP == null ? "空" : r.EP} ETP${r.ETP == null ? "空" : r.ETP}</span>`,
-    `<span class="chip">T=${r.T == null ? "null" : fmtN(r.T)}${S.train.removePadding ? " · THD 上界" : " · bshd pad"}</span>`,
-    `<span class="chip">${S.train.adamOff ? "Adam CPU" : "Adam GPU"}</span>`,
-    `<span class="chip">${S.train.recompute ? "recompute " + (r.recLayers == null ? "空" : r.recLayers) : "无 recompute"}</span>`,
+    `<span class="chip ${isMoe ? "warn" : "ok"}">${isMoe ? "MOE" : "DENSE"}</span>`,
   ];
-  if (S.train.entropy) chips.push(`<span class="chip warn">entropy clone</span>`);
+  if ((S.model.vitDepth || 0) > 0 || /[-_]?VL[-_]?/i.test(S.modelName)) {
+    chips.push(`<span class="chip">VL</span>`);
+  }
+  if (!isMoe) {
+    chips.push(`<span class="chip ok">按词表高峰</span>`);
+  }
   $("chips").innerHTML = chips.join("");
   setErr((r.warns || []).join("；"));
 
@@ -696,33 +686,27 @@ function render() {
   const leaf = (title, fml, val) =>
     `<div class="leaf"><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div>`;
   const branch = (title, fml, val, inner) =>
-    `<details><summary><div class="sum"><div class="nm">${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></div></summary><div class="kids">${inner}</div></details>`;
+    `<details><summary><div class="sum"><div class="nm">${title}${fml ? `<div class="fml">${fml}</div>` : ""}</div><div class="sv">${val}</div></div></summary><div class="kids">${inner}</div></details>`;
 
-  const den = (isNum(r.TP) && isNum(r.PP)) ? r.TP * r.PP : null;
-  const expDen = (isNum(r.EP) && isNum(r.ETP) && isNum(r.PP)) ? r.EP * r.ETP * r.PP : null;
   const wEq = !isNum(r.W)
-    ? `(N_dense/(TP·PP) + N_exp/(EP·ETP·PP)) × 2 = (${fmtN(r.nDense)} / (${r.TP == null ? "空" : r.TP}·${r.PP == null ? "空" : r.PP}) + ${fmtN(r.nExpert)} / (${r.EP == null ? "空" : r.EP}·${r.ETP == null ? "空" : r.ETP}·${r.PP == null ? "空" : r.PP})) × 2 = null`
-    : `(N_dense/(TP·PP) + N_exp/(EP·ETP·PP)) × 2 = (${fmtN(r.nDense)} / ${fmtN(den)} + ${fmtN(r.nExpert)} / ${fmtN(expDen)}) × 2 = ${fmtG(r.W)} GiB`;
-  const gEq = !isNum(r.G) ? `与权重同体积 × 2 byte = null` : `与权重同体积 × 2 byte = ${fmtG(r.G)} GiB`;
+    ? `N_rank × 2 = ${r.perRank == null ? "null" : fmtN(r.perRank)} × 2 = null`
+    : `N_rank × 2 = ${fmtN(r.perRank)} × 2 / 1024³ = ${fmtG(r.W)} GiB`;
+  const gEq = !isNum(r.G)
+    ? `N_rank × 2 = null`
+    : `N_rank × 2 = ${fmtN(r.perRank)} × 2 / 1024³ = ${fmtG(r.G)} GiB`;
   const oEq = S.train.adamOff
     ? `Adam 在 CPU = 0 GiB`
     : (!isNum(r.AdamGpu)
-      ? `shard × 12 = null`
-      : `shard × 12 = ${fmtN(r.perRank)} × 12 / 1024³ = ${fmtG(r.AdamGpu)} GiB`);
-  const logitsEq = !isNum(r.logitsBf16)
-    ? `T × (V/TP) × 2 = ${r.T == null ? "null" : fmtN(r.T)} × ${r.Vloc == null ? "null" : fmtN(r.Vloc)} × 2 = null`
-    : `T × (V/TP) × 2 = ${fmtN(r.T)} × ${fmtN(r.Vloc)} × 2 / 1024³ = ${fmtG(r.logitsBf16)} GiB`;
-  const ceEq = !isNum(r.ceFp32)
-    ? `T × (V/TP) × 4 = null`
-    : `T × (V/TP) × 4 = ${fmtN(r.T)} × ${fmtN(r.Vloc)} × 4 / 1024³ = ${fmtG(r.ceFp32)} GiB`;
-  const entEq = !S.train.entropy
-    ? `未启用 = 0 GiB`
-    : (!isNum(r.entropyClone) ? `T × (V/TP) × 2 = null` : `T × (V/TP) × 2 = ${fmtG(r.entropyClone)} GiB`);
-  const moeEq = r.nExpert <= 0
-    ? `无路由专家 = 0 GiB`
-    : (!isNum(r.moeBuf)
-      ? `2 × T × topk × H × 2 = null`
-      : `2 × T × topk × H × 2 = 2 × ${fmtN(r.T)} × ${r.topk} × ${r.H} × 2 / 1024³ = ${fmtG(r.moeBuf)} GiB`);
+      ? `N_rank × 12 = null`
+      : `N_rank × 12 = ${fmtN(r.perRank)} × 12 / 1024³ = ${fmtG(r.AdamGpu)} GiB`);
+  const dynEq = !isNum(r.vocabWs)
+    ? `2 × T × (V/TP) × 4 = 2 × ${r.T == null ? "null" : fmtN(r.T)} × ${r.Vloc == null ? "null" : fmtN(r.Vloc)} × 4 = null`
+    : `2 × T × (V/TP) × 4 = 2 × ${fmtN(r.T)} × ${fmtN(r.Vloc)} × 4 / 1024³ = ${fmtG(r.vocabWs)} GiB`;
+  const actEq = S.train.recompute
+    ? `full recompute = 0 GiB`
+    : (!isNum(r.actG)
+      ? `L × T × H × 2 = ${r.L} × ${r.T == null ? "null" : fmtN(r.T)} × ${r.H} × 2 = null`
+      : `L × T × H × 2 = ${r.L} × ${fmtN(r.T)} × ${r.H} × 2 / 1024³ = ${fmtG(r.actG)} GiB`);
   const hcclEq = !isNum(r.nComm) || !isNum(r.hcclMB)
     ? `n_comm × BUFFSIZE × 2 = ${r.nComm} × ${r.hcclMB == null ? "空" : r.hcclMB} × 2 = null`
     : `n_comm × BUFFSIZE × 2 = ${r.nComm} × ${r.hcclMB} × 2 = ${fmtN(r.nComm * r.hcclMB * 2)} MB = ${fmtG(r.hcclG)} GiB`;
@@ -771,48 +755,57 @@ function render() {
       leaf(`${r.vitDepth} blocks`, `${r.vitDepth} × ${fmtN(r.vitBlock)}`, fmtN(r.vitDepth * r.vitBlock)) +
       leaf("merger + 位置编码", `merger + n_pos × H_v`, fmtN(r.vitMerger));
   }
+  const nExpLayer = r.gateUp + r.down;
   const nTree =
     `<div class="tree">` +
-    branch("Text", `词表 + MLP + 注意力`, fmtN(r.textN), textKids) +
-    (vitKids
-      ? branch("ViT", "patch + blocks + merger", fmtN(r.vit), vitKids)
-      : leaf("ViT", "无视觉塔", "0")) +
-    `</div>` +
-    `<div class="nline">N = Text + ViT = ${fmtN(r.textN)} + ${fmtN(r.vit)} = ${fmtN(r.N)}</div>` +
-    `<div class="nline">N_dense / N_exp = ${fmtN(r.nDense)} / ${fmtN(r.nExpert)}（上卡 expert 不含 MTP）</div>`;
+    branch("N_rank = N_dense/(TP×PP) + N_expert/(EP×ETP×PP)", `${fmtN(r.nRankDense)} + ${fmtN(r.nRankExp)}`, fmtN(r.perRank),
+      branch("N_dense = N − N_expert", `${fmtN(r.N)} − ${fmtN(r.nExpert)}`, fmtN(r.nDense),
+        branch("N = Text + ViT", `${fmtN(r.textN)} + ${fmtN(r.vit)}`, fmtN(r.N),
+          branch("Text", `词表 + MLP + 注意力`, fmtN(r.textN), textKids) +
+          (vitKids
+            ? branch("ViT", "patch + blocks + merger", fmtN(r.vit), vitKids)
+            : leaf("ViT", "无视觉塔", "0")))) +
+      (r.E > 0
+        ? branch("N_expert = L × (gate_up + down)", `${r.L} × ${fmtN(nExpLayer)}`, fmtN(r.nExpert),
+            leaf("gate_up", `E × H × 2I`, fmtN(r.gateUp)) +
+            leaf("down", `E × I × H`, fmtN(r.down)) +
+            leaf("一层路由专家", `gate_up + down`, fmtN(nExpLayer)) +
+            leaf("L 层", `${r.L} × (gate_up + down)`, fmtN(r.nExpert)))
+        : leaf("N_expert", "无路由专家", "0")) +
+      leaf("N_dense / (TP×PP)", `TP=${r.TP == null ? "空" : r.TP}　PP=${r.PP == null ? "空" : r.PP}`, fmtN(r.nRankDense)) +
+      leaf("N_expert / (EP×ETP×PP)", `EP=${r.EP == null ? "空" : r.EP}　ETP=${r.ETP == null ? "空" : r.ETP}　PP=${r.PP == null ? "空" : r.PP}`, fmtN(r.nRankExp))) +
+    `</div>`;
+
+  const dynLis =
+    li("T", `mbs × (prompt + response) = ${r.mbs == null ? "空" : r.mbs} × (${r.prompt == null ? "空" : r.prompt} + ${r.resp == null ? "空" : r.resp})`, r.T == null ? "null" : fmtN(r.T)) +
+    li("V/TP", `${fmtN(r.V)} / ${r.TP == null ? "空" : r.TP}`, r.Vloc == null ? "null" : fmtN(r.Vloc)) +
+    li("两份 fp32", `峰值同时活着的两块 [T, V/TP]`, "2 × 4 byte") +
+    (S.train.entropy ? li("entropy", `T × (V/TP) × 2`, mem(r.entropyClone)) : "");
+  const dynKids =
+    `<div class="tree">` +
+    branch("CE峰值", "两份 [T, V/TP] fp32", mem(r.vocabWs), `<ul class="sub">` + dynLis + `</ul>`) +
+    `</div>`;
 
   $("mapBody").innerHTML = [
     partBlock("权重", COLORS.weight, r.W, wEq, nTree),
-    partBlock("梯度", COLORS.grad, r.G, gEq,
-      `<ul class="sub">${li("bf16", `与权重同 numel`, mem(r.G))}</ul>`),
     partBlock("优化器", COLORS.adam, r.AdamGpu, oEq,
       `<ul class="sub">${li("Adam", S.train.adamOff ? "在 CPU，不计入 allocated" : "12 byte/参数", mem(r.AdamGpu))}</ul>`),
-    partBlock("logits", COLORS.logits, r.logitsBf16, logitsEq,
+    partBlock("梯度", COLORS.grad, r.G, gEq,
+      `<p class="note">与权重同体积。</p>`),
+    partBlock("动态内存", COLORS.dyn, r.dynG, dynEq, dynKids),
+    partBlock("激活值", COLORS.act, r.actG, actEq,
       `<ul class="sub">` +
-      li("T", `mbs × (prompt + response)`, r.T == null ? "null" : fmtN(r.T)) +
-      li("V/TP", `${fmtN(r.V)} / ${r.TP == null ? "空" : r.TP}`, r.Vloc == null ? "null" : fmtN(r.Vloc)) +
+      (S.train.recompute
+        ? li("层激活", `full recompute，不随 L 累加`, "0 GiB")
+        : li("层激活", `L × T × H × 2`, mem(r.actG))) +
       `</ul>`),
-    partBlock("CE", COLORS.ce, r.ceFp32, ceEq,
-      `<ul class="sub">${li("fp32", `T × (V/TP) × 4`, mem(r.ceFp32))}</ul>`),
-    partBlock("entropy", COLORS.entropy, r.entropyClone, entEq,
-      `<ul class="sub">${li("logits clone", S.train.entropy ? "多一份 bf16 logits" : "未启用", mem(r.entropyClone))}</ul>`),
-    partBlock("MoE 缓冲", COLORS.moe, r.moeBuf, moeEq,
-      `<ul class="sub">${li("send+recv", `2 × T × topk × H × 2`, mem(r.moeBuf))}</ul>`),
-    partBlock("HCCL", COLORS.hccl, r.hcclG, hcclEq,
-      `<ul class="sub">` +
-      li("n_comm", `1（DP） + (TP>1) + (PP>1) + (EP>1) + (ETP>1)`, `${r.nComm}`) +
-      li("收发缓冲", `每个通信域一份 send、一份 recv，故 ×2`, `×2`) +
-      li("HCCL", hcclEq, mem(r.hcclG)) +
-      `</ul>`),
-    partBlock("内存碎片", COLORS.frag, r.fragG, `1 GiB（预估）`,
-      `<ul class="sub">${li("allocator 空洞", `不在 pickle allocated`, mem(r.fragG))}</ul>`),
-    partBlock("PTA", COLORS.pta, r.ptaG, `1 GiB（预估）`,
-      `<ul class="sub">${li("运行时 / workspace", `预估`, mem(r.ptaG))}</ul>`),
-    partBlock("Device OS", COLORS.os, r.osG, `3.5 GiB（预估）`,
-      `<ul class="sub">${li("驱动 / 设备 OS", `npu-smi 可见`, mem(r.osG))}</ul>`),
+    partBlock("HCCL", COLORS.hccl, r.hcclG, hcclEq, ""),
+    partBlock("内存碎片", COLORS.frag, r.fragG, `1 GiB（预估）`, ""),
+    partBlock("PTA", COLORS.pta, r.ptaG, `1 GiB（预估）`, ""),
+    partBlock("Device OS", COLORS.os, r.osG, `3.5 GiB（预估）`, ""),
   ].join("");
 
-  $("mapFoot").textContent = "N 只在权重展开。高峰 allocated = W+G" + (S.train.adamOff ? "" : "+Adam") + " + logits + CE + MoE。整卡再加 HCCL / 碎片 / PTA / Device OS。param offload 不改 allocated。";
+  $("mapFoot").textContent = "";
 }
 
 function partBlock(name, color, g, eq, inner) {
@@ -869,28 +862,23 @@ async function loadWeight(repo, resetTrain) {
   S.weightRepo = repo;
   if (repo === "local:12L") {
     setErr("");
-    $("cfgHint").textContent = "本地 12 层预置，不从 ModelScope 拉取。";
     applyParsedModel({ ...DEFAULT_12L, layerTypes: defaultLayerTypes(12, 4) }, resetTrain);
     return;
   }
   if (repo === "local:20L") {
     setErr("");
-    $("cfgHint").textContent = "本地 20 层预置，不从 ModelScope 拉取。";
     applyParsedModel({ ...DEFAULT_20L, layerTypes: defaultLayerTypes(20, 4) }, resetTrain);
     return;
   }
-  $("cfgHint").textContent = "正在从 ModelScope 拉取 config.json…";
   setErr("");
   try {
     const cfg = await fetchRemoteConfig(repo);
     if (gen !== fetchGen) return;
     const m = parseConfig(cfg);
     if (!m.hidden || !m.layers) throw new Error("未能读取 hidden_size / num_hidden_layers");
-    $("cfgHint").textContent = "权重数据实时从 ModelScope 拉取。";
     applyParsedModel({ ...EMPTY_MODEL, ...m }, resetTrain);
   } catch (e) {
     if (gen !== fetchGen) return;
-    $("cfgHint").textContent = "权重数据实时从 ModelScope 拉取。";
     setErr("拉取 " + repo + " 的 config.json 失败：" + (e && e.message ? e.message : e));
   }
 }

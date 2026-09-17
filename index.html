@@ -78,14 +78,13 @@
       text-transform: uppercase; color: var(--accent);
     }
     .panel h2 {
-      margin: 0 0 8px; font-size: 22px; font-weight: 600; letter-spacing: -0.03em;
+      margin: 0 0 22px; font-size: 22px; font-weight: 600; letter-spacing: -0.03em;
     }
-    .panel .desc { margin: 0 0 22px; color: var(--muted); max-width: 46em; }
     .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
     a.tool {
       position: relative; overflow: hidden;
       display: flex; flex-direction: column; justify-content: space-between;
-      min-height: 210px; padding: 20px 20px 18px;
+      min-height: 148px; padding: 20px 20px 18px;
       text-decoration: none; color: inherit;
       background: var(--card);
       border: 1px solid var(--line); border-radius: 14px;
@@ -108,8 +107,7 @@
     a.tool .tag {
       font: 500 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent);
     }
-    a.tool h3 { margin: 18px 0 8px; font-size: 18px; font-weight: 600; letter-spacing: -0.03em; }
-    a.tool p { margin: 0; color: var(--muted); font-size: 13px; min-height: 3.9em; }
+    a.tool h3 { margin: 18px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -0.03em; }
     a.tool .go {
       margin-top: 22px; font: 500 12px/1 var(--mono); letter-spacing: .08em; color: var(--ink);
     }
@@ -156,13 +154,11 @@
         <section class="panel" id="mod-mem">
           <p class="kicker">Memory</p>
           <h2>显存分析</h2>
-          <p class="desc">训练侧估静态与高峰；推理侧按并行策略估单卡构成。</p>
           <div class="bento">
             <a class="tool" href="megatron-grpo.html">
               <div>
-                <span class="tag">Megatron · GRPO</span>
-                <h3>Megatron GRPO 显存建模</h3>
-                <p>Actor update 单进程 allocated：静态 W+G（Adam 可选），高峰再加 logits / CE / MoE 缓冲。</p>
+                <span class="tag">Megatron</span>
+                <h3>Megatron 显存建模</h3>
               </div>
               <div class="go">打开 →</div>
             </a>
@@ -170,7 +166,6 @@
               <div>
                 <span class="tag">FSDP</span>
                 <h3>FSDP 显存建模</h3>
-                <p>高峰 = 静态 + 动态 + 可选激活</p>
               </div>
               <div class="go">打开 →</div>
             </a>
@@ -178,7 +173,6 @@
               <div>
                 <span class="tag">Inference · MoE</span>
                 <h3>推理显存建模</h3>
-                <p>分布式 MoE 推理单卡规划：权重、激活、HCCL、ACLGraph 与运行时预留。</p>
               </div>
               <div class="go">打开 →</div>
             </a>
