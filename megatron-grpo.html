@@ -94,6 +94,7 @@
     .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
     .fields.one { grid-template-columns: 1fr; }
     label.f { font-size: 13px; font-weight: 600; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+    label.f[hidden] { display: none !important; }
     label.chk { font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 9px; }
     input[type=number], input[type=text], select {
       width: 100%; height: 40px; font: 500 14px/1.2 var(--mono); padding: 8px 11px;
@@ -206,8 +207,8 @@
         <div class="fields">
           <label class="f">TP<input id="ovTP" type="number" min="0" step="1" /></label>
           <label class="f">PP<input id="ovPP" type="number" min="0" step="1" /></label>
-          <label class="f">EP<input id="ovEP" type="number" min="0" step="1" /></label>
-          <label class="f">ETP<input id="ovETP" type="number" min="0" step="1" /></label>
+          <label class="f" id="epField">EP<input id="ovEP" type="number" min="0" step="1" /></label>
+          <label class="f" id="etpField">ETP<input id="ovETP" type="number" min="0" step="1" /></label>
           <label class="f">单卡容量 GiB<input id="ovHbm" type="number" min="0" step="1" /></label>
           <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="0" step="1" /></label>
         </div>
@@ -284,13 +285,29 @@ const EMPTY_MODEL = {
   arch: "", topk: 8,
 };
 
+const DEFAULT_27B = {
+  vocab: 248320, hidden: 5120, layers: 64, experts: 0, moeI: 0, shareI: 0, denseI: 17408,
+  nQ: 24, nKV: 4, headDim: 256, fullInterval: 4,
+  gdnKH: 16, gdnKD: 128, gdnVH: 48, gdnVD: 128, gdnConv: 4, mtp: 1,
+  vitDepth: 27, vitH: 1152, vitI: 4304, vitOut: 5120,
+  patch: 16, tPatch: 2, inCh: 3, merge: 2, nPos: 2304,
+  tie: false, attnGate: true, layerTypes: [],
+  arch: "Qwen3_5ForConditionalGeneration",
+  topk: 8,
+};
+
 function defaultLayerTypes(L, iv) {
   return Array.from({ length: L }, (_, i) => ((i + 1) % iv === 0 ? "full_attention" : "linear_attention"));
 }
 
-function defaultTrain() {
+function isMoeModel(model) { return (model && model.experts || 0) > 0; }
+
+function defaultTrain(model) {
+  const moe = isMoeModel(model);
+  const nKV = (model && model.nKV) || 0;
+  const denseTP = nKV > 0 ? Math.min(4, nKV) : 4;
   return {
-    TP: 2, PP: 1, EP: 8, ETP: 1,
+    TP: moe ? 2 : denseTP, PP: 1, EP: moe ? 8 : 1, ETP: 1,
     mbs: 1, prompt: 1024, resp: 2048,
     adamOff: true,
     recompute: true, recLayers: 1,
@@ -348,6 +365,7 @@ function allQwenModels() {
 function repoForModel(name) {
   if (name === "Qwen3.5-35B-A3B (12L)") return "local:12L";
   if (name === "Qwen3.6-35B-A3B (20L)") return "local:20L";
+  if (name === "Qwen3.5-27B") return "local:27B";
   return "Qwen/" + name;
 }
 
@@ -357,7 +375,7 @@ const S = {
   modelName: "Qwen3.5-35B-A3B (12L)",
   weightRepo: "local:12L",
   model: { ...DEFAULT_12L, layerTypes: defaultLayerTypes(12, 4) },
-  train: defaultTrain(),
+  train: defaultTrain(DEFAULT_12L),
 };
 
 function $(id) { return document.getElementById(id); }
@@ -510,8 +528,16 @@ function posOk(x) { return isNum(x) && x > 0; }
 
 function compute(model, train) {
   const p = countParams(model);
-  const TP = train.TP, PP = train.PP, EP = train.EP, ETP = train.ETP;
+  const isMoe = (model.experts || 0) > 0;
+  const TP = train.TP, PP = train.PP;
+  let EP = train.EP, ETP = train.ETP;
   const warns = [];
+  if (!isMoe) {
+    if (posOk(EP) && EP !== 1) warns.push("dense 无路由专家，EP 按 1 计");
+    if (posOk(ETP) && ETP !== 1) warns.push("dense 无专家内部切分，ETP 按 1 计");
+    EP = 1;
+    ETP = 1;
+  }
   const checkDiv = (name, x) => {
     if (x == null) warns.push(name + " 为空，切分无法计算");
     else if (x === 0) warns.push(name + " = 0，无法做除法，相关项为 null");
@@ -567,7 +593,6 @@ function compute(model, train) {
   if (tpIllegal) warns.push("TP=" + TP + " > n_kv_heads=" + nKV);
   else if (!train.recompute) warns.push("已关 recompute：高峰另加约 L×T×H×2");
   if (isNum(PP) && PP > 1) warns.push("PP>1：静态按 PP 均分；词表按最后 stage 整份加上（中间 stage 没有词表项）");
-  if (p.mtp > 0) warns.push("MTP=" + p.mtp + " 已计入 N；路由专家桶只用 L 层（N_expert），MTP 专家走 N_dense");
 
   const nComm = 1
     + (posOk(TP) && TP > 1 ? 1 : 0)
@@ -607,6 +632,30 @@ function readForm() {
   t.adamOff = $("ovAdamOff").checked;
   t.recompute = $("ovRecompute").checked;
   t.entropy = $("ovEntropy").checked;
+  if (!isMoeModel(S.model)) {
+    t.EP = 1;
+    t.ETP = 1;
+  }
+}
+
+function syncSplitUi() {
+  const moe = isMoeModel(S.model);
+  const ep = $("epField");
+  const etp = $("etpField");
+  if (ep) {
+    ep.hidden = !moe;
+    ep.style.display = moe ? "" : "none";
+  }
+  if (etp) {
+    etp.hidden = !moe;
+    etp.style.display = moe ? "" : "none";
+  }
+  if (!moe) {
+    S.train.EP = 1;
+    S.train.ETP = 1;
+    writeNum("ovEP", 1);
+    writeNum("ovETP", 1);
+  }
 }
 
 function writeForm() {
@@ -624,6 +673,7 @@ function writeForm() {
   $("ovAdamOff").checked = !!t.adamOff;
   $("ovRecompute").checked = !!t.recompute;
   $("ovEntropy").checked = !!t.entropy;
+  syncSplitUi();
 }
 
 function partsOf(r) {
@@ -641,6 +691,7 @@ function partsOf(r) {
 }
 
 function render() {
+  syncSplitUi();
   const r = compute(S.model, S.train);
   const parts = partsOf(r);
   const tot = r.deviceG;
@@ -756,12 +807,22 @@ function render() {
       leaf("merger + 位置编码", `merger + n_pos × H_v`, fmtN(r.vitMerger));
   }
   const nExpLayer = r.gateUp + r.down;
+  const tpLab = r.TP == null ? "空" : r.TP;
+  const ppLab = r.PP == null ? "空" : r.PP;
+  const epLab = r.EP == null ? "空" : r.EP;
+  const etpLab = r.ETP == null ? "空" : r.ETP;
+  const rankTitle = r.E > 0
+    ? "N_rank = N_dense/(TP×PP) + N_expert/(EP×ETP×PP)"
+    : "N_rank = N/(TP×PP)";
+  const rankFml = r.E > 0
+    ? `${fmtN(r.nRankDense)} + ${fmtN(r.nRankExp)}`
+    : `${fmtN(r.N)} / (${tpLab}×${ppLab})`;
   const nTree =
     `<div class="tree">` +
-    branch("N_rank = N_dense/(TP×PP) + N_expert/(EP×ETP×PP)", `${fmtN(r.nRankDense)} + ${fmtN(r.nRankExp)}`, fmtN(r.perRank),
+    branch(rankTitle, rankFml, fmtN(r.perRank),
       branch("N_dense = N − N_expert", `${fmtN(r.N)} − ${fmtN(r.nExpert)}`, fmtN(r.nDense),
         branch("N = Text + ViT", `${fmtN(r.textN)} + ${fmtN(r.vit)}`, fmtN(r.N),
-          branch("Text", `词表 + MLP + 注意力`, fmtN(r.textN), textKids) +
+          branch("Text", r.mtp > 0 ? "词表 + MLP + 注意力 + MTP" : "词表 + MLP + 注意力", fmtN(r.textN), textKids) +
           (vitKids
             ? branch("ViT", "patch + blocks + merger", fmtN(r.vit), vitKids)
             : leaf("ViT", "无视觉塔", "0")))) +
@@ -771,9 +832,11 @@ function render() {
             leaf("down", `E × I × H`, fmtN(r.down)) +
             leaf("一层路由专家", `gate_up + down`, fmtN(nExpLayer)) +
             leaf("L 层", `${r.L} × (gate_up + down)`, fmtN(r.nExpert)))
-        : leaf("N_expert", "无路由专家", "0")) +
-      leaf("N_dense / (TP×PP)", `TP=${r.TP == null ? "空" : r.TP}　PP=${r.PP == null ? "空" : r.PP}`, fmtN(r.nRankDense)) +
-      leaf("N_expert / (EP×ETP×PP)", `EP=${r.EP == null ? "空" : r.EP}　ETP=${r.ETP == null ? "空" : r.ETP}　PP=${r.PP == null ? "空" : r.PP}`, fmtN(r.nRankExp))) +
+        : leaf("N_expert", "无路由专家，EP=1", "0")) +
+      leaf("N_dense / (TP×PP)", `TP=${tpLab}　PP=${ppLab}`, fmtN(r.nRankDense)) +
+      (r.E > 0
+        ? leaf("N_expert / (EP×ETP×PP)", `EP=${epLab}　ETP=${etpLab}　PP=${ppLab}`, fmtN(r.nRankExp))
+        : "")) +
     `</div>`;
 
   const dynLis =
@@ -851,7 +914,7 @@ function applyParsedModel(m, resetTrain) {
     m.layerTypes = defaultLayerTypes(m.layers, m.fullInterval || 4);
   }
   S.model = m;
-  if (resetTrain) S.train = defaultTrain();
+  if (resetTrain) S.train = defaultTrain(m);
   writeForm();
   render();
 }
@@ -868,6 +931,11 @@ async function loadWeight(repo, resetTrain) {
   if (repo === "local:20L") {
     setErr("");
     applyParsedModel({ ...DEFAULT_20L, layerTypes: defaultLayerTypes(20, 4) }, resetTrain);
+    return;
+  }
+  if (repo === "local:27B") {
+    setErr("");
+    applyParsedModel({ ...DEFAULT_27B, layerTypes: defaultLayerTypes(64, 4) }, resetTrain);
     return;
   }
   setErr("");
@@ -905,6 +973,10 @@ function onCustomRepo() {
   loadWeight(raw, true);
 }
 
+(function applyQueryModel() {
+  const q = new URLSearchParams(location.search).get("model");
+  if (q && allQwenModels().includes(q)) S.modelName = q;
+})();
 fillModelSelect();
 $("ovModel").addEventListener("change", onModelPicked);
 $("ovCustomRepo").addEventListener("keydown", (e) => {
