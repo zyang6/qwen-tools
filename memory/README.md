@@ -14,7 +14,7 @@ Qwen 单卡显存估算：Megatron / FSDP 训练，以及 MoE 推理。
 
 | 页面 | 场景 | 静态怎么切 | 高峰 |
 |---|---|---|---|
-| [`megatron.html`](megatron.html) | Megatron actor update | `N_rank × 4`（bf16 权重+梯度；Adam 在 CPU 则为 0） | 词表 CE：`2×T×(V/TP)×4` |
+| [`megatron.html`](megatron.html) | Megatron actor update | `N_rank × 4`（bf16 权重+梯度）。优化器 `12×(N_dense/(TP×PP×DP_dense) + N_expert/(EP×PP×DP_expert))`，Adam 在 CPU 则为 0 | 词表 CE：`2×T×(V/TP)×4` |
 | [`fsdp.html`](fsdp.html) | FSDP 全量微调 | `N/P × 12`（fp32 权重 + Adam；不含梯度） | 梯度 `N/P×4` + `6U` + 激活 |
 | [`infer.html`](infer.html) | MoE 推理部署 | 权重按 EP/TP 切 | KV / 激活 / HCCL / ACLGraph / CANN / OS |
 
@@ -25,7 +25,7 @@ Megatron 的 N 不按卡数 P 均分，按 TP/PP/EP/ETP。FSDP 才是 `÷P`。�
 1. 从总入口打开对应页面，或直接进上面的链接。
 2. 选 Qwen 模型，或填 ModelScope 仓库 `owner/name` 回车；结构从 `config.json` 拉。
 3. 改切分、序列、offload / recompute，右侧实时出单卡 GiB（`1024³`）。
-4. Dense 没有专家：EP=1。MoE 默认 TP=2、EP=8。
+4. Dense 没有专家：EP=1。MoE 默认 TP=2、EP=8、P=8。ETP 固定为 1，页面不配置。P 须被 `TP×PP` 和 `EP×PP` 整除，否则页面标为非法，不给出配置。
 
 页面右上角 **GitHub** 看源码，**反馈** 开 Issue（标题已带 `[memory/megatron]` 或 `[memory/fsdp]`）。推理页的按钮指向 Eco-Sphere 仓库。
 
@@ -35,8 +35,12 @@ Megatron 的 N 不按卡数 P 均分，按 TP/PP/EP/ETP。FSDP 才是 `÷P`。�
 N        = Text + ViT
 N_expert = L × (gate_up + down)     # dense 为 0
 N_dense  = N − N_expert
-N_rank   = N_dense/(TP×PP) + N_expert/(EP×ETP×PP)
-静态     = N_rank × 4 / 1024³       # Adam CPU → 优化器 0
+N_rank   = N_dense/(TP×PP) + N_expert/(EP×PP)    # ETP 固定为 1
+P 被 TP×PP 整除               DP_dense  = P/(TP×PP)
+P 被 EP×PP 整除               DP_expert = P/(EP×PP)
+优化器   = 12 × (N_dense/(TP×PP×DP_dense) + N_expert/(EP×PP×DP_expert)) / 1024³
+                                      # Adam CPU → 0
+静态     = N_rank × 4 / 1024³ + 优化器
 T        = mbs × (prompt + response)
 动态内存 = 2 × T × (V/TP) × 4 / 1024³
 激活值   = 1 × T × H × 2             # full recompute，只留一层入口

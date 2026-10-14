@@ -104,7 +104,8 @@
     .chip.warn { background: #fff1d6; color: var(--warn); }
     .chip.bad { background: #fde8e8; color: var(--bad); }
     .err { color: var(--bad); font-size: 13px; margin-top: 8px; }
-    .err:empty { display: none; }
+    .err:empty, #splitHint:empty { display: none; }
+    #splitHint { margin: 10px 0 0; }
     .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
     .fields.one { grid-template-columns: 1fr; }
     label.f { font-size: 13px; font-weight: 600; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
@@ -119,6 +120,7 @@
       outline: none; border-color: #5ea089;
       box-shadow: 0 0 0 3px rgba(31, 107, 86, 0.14);
     }
+    input.bad { border-color: var(--bad); background: #fff6f6; }
     .checks { display: grid; gap: 10px; margin-top: 12px; }
     .muted { color: var(--muted); font-size: 13px; }
     .hero .lab {
@@ -232,20 +234,22 @@
       <section class="card">
         <h3 class="sec">切分配置</h3>
         <div class="fields">
+          <label class="f">卡数/P<input id="ovCards" type="number" min="1" step="1" /></label>
           <label class="f">TP<input id="ovTP" type="number" min="0" step="1" /></label>
           <label class="f">PP<input id="ovPP" type="number" min="0" step="1" /></label>
           <label class="f" id="epField">EP<input id="ovEP" type="number" min="0" step="1" /></label>
-          <label class="f" id="etpField">ETP<input id="ovETP" type="number" min="0" step="1" /></label>
           <label class="f">单卡容量 GiB<input id="ovHbm" type="number" min="0" step="1" /></label>
           <label class="f">HCCL_BUFFSIZE MB<input id="ovHccl" type="number" min="0" step="1" /></label>
           <label class="f">MTP 层数<input id="ovMtp" type="number" min="0" step="1" /></label>
         </div>
+        <p class="muted" id="splitHint"></p>
+        <div class="err" id="splitErr"></div>
       </section>
 
       <section class="card">
         <h3 class="sec">序列与 microbatch</h3>
         <div class="fields">
-          <label class="f">mbs / 卡<input id="ovMbs" type="number" min="0" step="1" /></label>
+          <label class="f">mbs<input id="ovMbs" type="number" min="0" step="1" /></label>
           <label class="f">prompt<input id="ovPrompt" type="number" min="0" step="1" /></label>
           <label class="f">response<input id="ovResp" type="number" min="0" step="1" /></label>
         </div>
@@ -330,12 +334,26 @@ function defaultLayerTypes(L, iv) {
 
 function isMoeModel(model) { return (model && model.experts || 0) > 0; }
 
+function gcd(a, b) {
+  let x = Math.abs(a), y = Math.abs(b);
+  while (y) { const t = y; y = x % y; x = t; }
+  return x || 1;
+}
+
+function defaultCards(TP, PP, EP, ETP) {
+  const denseProd = TP * PP;
+  const expProd = EP * ETP * PP;
+  return denseProd / gcd(denseProd, expProd) * expProd;
+}
+
 function defaultTrain(model) {
   const moe = isMoeModel(model);
   const nKV = (model && model.nKV) || 0;
   const denseTP = nKV > 0 ? Math.min(4, nKV) : 4;
+  const TP = moe ? 2 : denseTP, PP = 1, EP = moe ? 8 : 1, ETP = 1;
   return {
-    TP: moe ? 2 : denseTP, PP: 1, EP: moe ? 8 : 1, ETP: 1,
+    cards: defaultCards(TP, PP, EP, ETP),
+    TP, PP, EP, ETP,
     mbs: 1, prompt: 1024, resp: 2048,
     adamOff: true,
     recompute: true, recLayers: 1,
@@ -553,31 +571,50 @@ function countParams(model) {
 }
 
 function posOk(x) { return isNum(x) && x > 0; }
+function intOk(x) { return Number.isInteger(x) && x > 0; }
 
 function compute(model, train) {
   const p = countParams(model);
   const isMoe = (model.experts || 0) > 0;
   const TP = train.TP, PP = train.PP;
-  let EP = train.EP, ETP = train.ETP;
+  let EP = train.EP;
+  const ETP = 1;
+  const cards = train.cards;
   const warns = [];
+  const splitWarns = [];
   if (!isMoe) {
-    if (posOk(EP) && EP !== 1) warns.push("dense 无路由专家，EP 按 1 计");
-    if (posOk(ETP) && ETP !== 1) warns.push("dense 无专家内部切分，ETP 按 1 计");
+    if (intOk(EP) && EP !== 1) warns.push("dense 无路由专家，EP 按 1 计");
     EP = 1;
-    ETP = 1;
   }
-  const checkDiv = (name, x) => {
-    if (x == null) warns.push(name + " 为空，切分无法计算");
-    else if (x === 0) warns.push(name + " = 0，无法做除法，相关项为 null");
-    else if (x < 0) warns.push(name + " 为负数，相关项为 null");
+  const checkInt = (name, x) => {
+    if (x == null) splitWarns.push(name + " 为空，切分无法计算");
+    else if (!Number.isInteger(x) || x <= 0) splitWarns.push(name + " 须为正整数");
   };
-  checkDiv("TP", TP);
-  checkDiv("PP", PP);
-  checkDiv("EP", EP);
-  checkDiv("ETP", ETP);
-  const splitOk = posOk(TP) && posOk(PP) && posOk(EP) && posOk(ETP);
+  checkInt("P", cards);
+  checkInt("TP", TP);
+  checkInt("PP", PP);
+  checkInt("EP", EP);
+  const splitOk = intOk(TP) && intOk(PP) && intOk(EP);
+  const denseProd = splitOk ? TP * PP : null;
+  const expProd = splitOk ? EP * PP : null;
+  let dpDense = null, dpExpert = null;
+  if (splitOk && intOk(cards)) {
+    const denseDiv = cards % denseProd === 0;
+    const expDiv = cards % expProd === 0;
+    if (!denseDiv && !expDiv && denseProd === expProd) {
+      splitWarns.push("P=" + cards + " 不能被 TP×PP=" + denseProd + " 整除");
+    } else {
+      if (!denseDiv) splitWarns.push("P=" + cards + " 不能被 TP×PP=" + denseProd + " 整除，DP_dense 不成立");
+      if (!expDiv) splitWarns.push("P=" + cards + " 不能被 EP×PP=" + expProd + " 整除，DP_expert 不成立");
+    }
+    if (denseDiv && expDiv) {
+      dpDense = cards / denseProd;
+      dpExpert = cards / expProd;
+    }
+  }
+  const cardsOk = dpDense != null && dpExpert != null;
   const nRankDense = splitOk ? p.nDense / (TP * PP) : null;
-  const nRankExp = splitOk ? p.nExpert / (EP * ETP * PP) : null;
+  const nRankExp = splitOk ? p.nExpert / (EP * PP) : null;
   const perRank = sumNum(nRankDense, nRankExp);
   const bw = train.bw || 2;
   const Wd = isNum(nRankDense) ? nRankDense * bw / GIB : null;
@@ -586,8 +623,15 @@ function compute(model, train) {
   const G = W;
   const Gd = Wd;
   const Ge = We;
-  const adam = isNum(perRank) ? perRank * 12 / GIB : null;
-  const AdamGpu = train.adamOff ? 0 : adam;
+  const nAdamDense = cardsOk ? nRankDense / dpDense : null;
+  const nAdamExp = cardsOk ? nRankExp / dpExpert : null;
+  const nAdam = sumNum(nAdamDense, nAdamExp);
+  const adamDenseG = isNum(nAdamDense) ? nAdamDense * 12 / GIB : null;
+  const adamExpG = isNum(nAdamExp) ? nAdamExp * 12 / GIB : null;
+  const adam = isNum(nAdam) ? nAdam * 12 / GIB : null;
+  const AdamGpu = cardsOk ? (train.adamOff ? 0 : adam) : null;
+  const adamDenseGpu = cardsOk ? (train.adamOff ? 0 : adamDenseG) : null;
+  const adamExpGpu = cardsOk ? (train.adamOff ? 0 : adamExpG) : null;
   const staticWG = sumNum(W, G);
   const staticFull = sumNum(staticWG, AdamGpu);
 
@@ -636,9 +680,11 @@ function compute(model, train) {
   const deviceG = sumNum(peak, runtimeG);
 
   return {
-    ...p, TP, PP, EP, ETP, seq, T, Vloc, perRank, nRankDense, nRankExp,
+    ...p, cards, TP, PP, EP, ETP, dpDense, dpExpert, cardsOk, splitWarns,
+    seq, T, Vloc, perRank, nRankDense, nRankExp, nAdam, nAdamDense, nAdamExp,
     nKV, tpIllegal, peakOk, recOk,
-    W, G, Wd, We, Gd, Ge, adam, AdamGpu, staticWG, staticFull,
+    W, G, Wd, We, Gd, Ge, adam, AdamGpu, adamDenseG, adamExpG, adamDenseGpu, adamExpGpu,
+    staticWG, staticFull,
     vocabWs, entropyClone, actExtra, dynG, actG, ws, peak, warns, bw,
     mbs, prompt, resp,
     hcclG, nComm, hcclMB, fragG, ptaG, osG, runtimeG, deviceG,
@@ -647,10 +693,11 @@ function compute(model, train) {
 
 function readForm() {
   const t = S.train;
+  t.cards = readNum("ovCards");
   t.TP = readNum("ovTP");
   t.PP = readNum("ovPP");
   t.EP = readNum("ovEP");
-  t.ETP = readNum("ovETP");
+  t.ETP = 1;
   t.hbm = readNum("ovHbm");
   t.hcclMB = readNum("ovHccl");
   t.mbs = readNum("ovMbs");
@@ -661,39 +708,30 @@ function readForm() {
   t.entropy = $("ovEntropy").checked;
   t.mtp = readNum("ovMtp");
   S.model.mtp = isNum(t.mtp) ? Math.max(t.mtp, 0) : 0;
-  if (!isMoeModel(S.model)) {
-    t.EP = 1;
-    t.ETP = 1;
-  }
+  if (!isMoeModel(S.model)) t.EP = 1;
 }
 
 function syncSplitUi() {
   const moe = isMoeModel(S.model);
   const ep = $("epField");
-  const etp = $("etpField");
   if (ep) {
     ep.hidden = !moe;
     ep.style.display = moe ? "" : "none";
   }
-  if (etp) {
-    etp.hidden = !moe;
-    etp.style.display = moe ? "" : "none";
-  }
+  S.train.ETP = 1;
   if (!moe) {
     S.train.EP = 1;
-    S.train.ETP = 1;
     writeNum("ovEP", 1);
-    writeNum("ovETP", 1);
   }
 }
 
 function writeForm() {
   const t = S.train;
   $("ovModel").value = S.modelName;
+  writeNum("ovCards", t.cards);
   writeNum("ovTP", t.TP);
   writeNum("ovPP", t.PP);
   writeNum("ovEP", t.EP);
-  writeNum("ovETP", t.ETP);
   writeNum("ovHbm", t.hbm);
   writeNum("ovHccl", t.hcclMB);
   writeNum("ovMbs", t.mbs);
@@ -727,9 +765,12 @@ function render() {
   const tot = r.deviceG;
   const hbm = S.train.hbm;
 
-  if (r.tpIllegal) {
+  const blocked = r.tpIllegal || !r.cardsOk;
+  if (blocked) {
     $("vTotal").innerHTML = "非法";
-    $("vTotalSub").textContent = "TP=" + r.TP + " > n_kv_heads=" + r.nKV;
+    $("vTotalSub").textContent = r.tpIllegal
+      ? "TP=" + r.TP + " > n_kv_heads=" + r.nKV
+      : (r.splitWarns || []).join("；");
   } else {
     $("vTotal").innerHTML = isNum(tot) ? fmtG(tot) + "<span>GiB</span>" : "null";
     $("vTotalSub").textContent = !isNum(tot)
@@ -739,9 +780,10 @@ function render() {
         : "npu-smi Used 口径 · 高峰仅下界");
   }
   if (!isNum(hbm)) $("vRemain").textContent = "单卡容量为空，余量无法计算";
+  else if (!r.cardsOk) $("vRemain").textContent = "切分与 P 不匹配，不给出配置";
   else if (!isNum(tot) || r.tpIllegal) $("vRemain").textContent = "预估为 null，余量无法计算";
   else $("vRemain").textContent = "相对单卡 " + hbm + " GiB · 余量 " + fmtG(hbm - tot) + " GiB";
-  $("hbmBar").innerHTML = !r.tpIllegal && isNum(tot) && tot > 0
+  $("hbmBar").innerHTML = !blocked && isNum(tot) && tot > 0
     ? parts.map((p) => `<i style="width:${Math.max(0, (isNum(p.g) ? p.g : 0) / tot * 100)}%;background:${p.color}"></i>`).join("")
     : "";
 
@@ -761,6 +803,16 @@ function render() {
   }
   $("chips").innerHTML = chips.join("");
   setErr((r.warns || []).join("；"));
+  $("splitErr").textContent = (r.splitWarns || []).join("；");
+  $("splitHint").textContent = r.cardsOk
+    ? (r.E > 0
+      ? "DP_dense = " + r.dpDense + "，DP_expert = " + r.dpExpert
+      : "DP_dense = " + r.dpDense)
+    : "";
+  ["ovCards", "ovTP", "ovPP", "ovEP"].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.toggle("bad", !r.cardsOk);
+  });
 
   const li = (title, fml, val) =>
     `<li><div>${title}<div class="fml">${fml}</div></div><div class="sv">${val}</div></li>`;
@@ -775,11 +827,14 @@ function render() {
   const gEq = !isNum(r.G)
     ? `N_rank × 2 = null`
     : `N_rank × 2 = ${fmtN(r.perRank)} × 2 / 1024³ = ${fmtG(r.G)} GiB`;
-  const oEq = S.train.adamOff
-    ? `Adam 在 CPU = 0 GiB`
-    : (!isNum(r.AdamGpu)
-      ? `N_rank × 12 = null`
-      : `N_rank × 12 = ${fmtN(r.perRank)} × 12 / 1024³ = ${fmtG(r.AdamGpu)} GiB`);
+  const optFml = r.E > 0
+    ? `12 × (N_dense/(TP×PP×DP_dense) + N_expert/(EP×PP×DP_expert)) / 1024³`
+    : `12 × N_dense/(TP×PP×DP_dense) / 1024³`;
+  const oEq = !r.cardsOk
+    ? `${optFml} = null`
+    : (S.train.adamOff
+      ? `Adam 在 CPU = 0 GiB`
+      : `${optFml} = ${fmtG(r.AdamGpu)} GiB`);
   const dynEq = !isNum(r.vocabWs)
     ? `2 × T × (V/TP) × 4 = 2 × ${r.T == null ? "null" : fmtN(r.T)} × ${r.Vloc == null ? "null" : fmtN(r.Vloc)} × 4 = null`
     : `2 × T × (V/TP) × 4 = 2 × ${fmtN(r.T)} × ${fmtN(r.Vloc)} × 4 / 1024³ = ${fmtG(r.vocabWs)} GiB`;
@@ -842,10 +897,21 @@ function render() {
   const tpLab = r.TP == null ? "空" : r.TP;
   const ppLab = r.PP == null ? "空" : r.PP;
   const epLab = r.EP == null ? "空" : r.EP;
-  const etpLab = r.ETP == null ? "空" : r.ETP;
+  const pLab = r.cards == null ? "空" : r.cards;
+  const adamRows =
+    li("dense", `12 × N_dense/(TP×PP×DP_dense)，DP_dense = P/(TP×PP) = ${pLab}/(${tpLab}×${ppLab})`, mem(r.adamDenseGpu)) +
+    (r.E > 0
+      ? li("moe", `12 × N_expert/(EP×PP×DP_expert)，DP_expert = P/(EP×PP) = ${pLab}/(${epLab}×${ppLab})`, mem(r.adamExpGpu))
+      : "");
+  const adamInner = !r.cardsOk ? "" : (
+    `<div class="tree">` +
+    branch("分布式优化器", "", mem(r.AdamGpu),
+      `<ul class="sub">` + adamRows + `</ul>`) +
+    `</div>`
+  );
   const rankTitle = r.E > 0
-    ? `N_rank = N_dense/(TP×PP) + N_expert/(EP×ETP×PP) = ${fmtN(r.nDense)} / (${tpLab}×${ppLab}) + ${fmtN(r.nExpert)} / (${epLab}×${etpLab}×${ppLab})`
-    : `N_rank = N/(TP×PP) = ${fmtN(r.N)} / (${tpLab}×${ppLab})`;
+    ? `N_rank = N_dense/(TP×PP) + N_expert/(EP×PP)`
+    : `N_rank = N_dense/(TP×PP)`;
   const rankFml = "";
   const nTree =
     `<div class="tree">` +
@@ -863,9 +929,9 @@ function render() {
             leaf("一层路由专家", `gate_up + down`, fmtN(nExpLayer)) +
             leaf("L 层", `${r.L} × (gate_up + down)`, fmtN(r.nExpert)))
         : leaf("N_expert", "无路由专家，EP=1", "0")) +
-      leaf("N_dense / (TP×PP)", `TP=${tpLab}　PP=${ppLab}`, fmtN(r.nRankDense)) +
+      leaf("N_dense/(TP×PP)", `TP×PP = ${tpLab}×${ppLab}`, fmtN(r.nRankDense)) +
       (r.E > 0
-        ? leaf("N_expert / (EP×ETP×PP)", `EP=${epLab}　ETP=${etpLab}　PP=${ppLab}`, fmtN(r.nRankExp))
+        ? leaf("N_expert/(EP×PP)", `EP×PP = ${epLab}×${ppLab}`, fmtN(r.nRankExp))
         : "")) +
     `</div>`;
 
@@ -881,8 +947,7 @@ function render() {
 
   $("mapBody").innerHTML = [
     partBlock("权重", COLORS.weight, r.W, wEq, nTree),
-    partBlock("优化器", COLORS.adam, r.AdamGpu, oEq,
-      `<ul class="sub">${li("Adam", S.train.adamOff ? "在 CPU，不计入 allocated" : "12 byte/参数", mem(r.AdamGpu))}</ul>`),
+    partBlock("优化器", COLORS.adam, r.AdamGpu, oEq, adamInner),
     partBlock("梯度", COLORS.grad, r.G, gEq, ""),
     partBlock("动态内存", COLORS.dyn, r.dynG, dynEq, dynKids),
     partBlock("激活值", COLORS.act, r.actG, actEq, ""),
