@@ -507,7 +507,7 @@ function compute(model, train) {
   const ulysses = 1;
   const ring = 1;
   const CP = 1;
-  const bw = 2, bg = 2, nAdam = 2, bAdam = 4;
+  const bw = 2, bParam = 4, bg = 2, nAdam = 2, bAdam = 4;
   const bReduce = 4;
   const reduceScale = 2;
   const mtp = isNum(p.mtp) ? Math.max(p.mtp, 0) : 0;
@@ -578,7 +578,7 @@ function compute(model, train) {
   const N = textN + vit;
   const nExpert = E > 0 ? (L + mtp) * (gateUp + down) : 0;
   const perCard = pOk ? N / P : null;
-  const paramG = pOk ? perCard * bw / GIB : null;
+  const paramG = pOk ? perCard * bParam / GIB : null;
   const gradBf16G = pOk ? perCard * bg / GIB : null;
   const gradG = pOk ? 2 * gradBf16G : null;
   const adamG = pOk ? perCard * nAdam * bAdam / GIB : null;
@@ -587,9 +587,16 @@ function compute(model, train) {
   const expertNumel = gateUp + down;
   const attnAvg = L ? (nFull * fullAttn + nGdn * gdn) / L : 0;
   const layerNumel = expertNumel + moeOther + attnAvg + 2 * H;
-  const unitNumel = p.wrap ? layerNumel : (expertNumel || layerNumel);
-  const Ufull = unitNumel * bw / GIB;
-  const U = Ufull / EP;
+  const attach = moeOther + 2 * H;
+  const numelFull = expertNumel + attach + fullAttn;
+  const numelGdn = expertNumel + attach + gdn;
+  const toG = (numel) => numel * bw / GIB / EP;
+  const uMoe = E > 0 ? toG(expertNumel) : 0;
+
+  let unitNumel = p.wrap ? layerNumel : (expertNumel || layerNumel);
+  let Ufull = unitNumel * bw / GIB;
+  let U = Ufull / EP;
+  let uLayerKind = "moe";
 
   let prefetch = p.prefetch;
   let prefG;
@@ -602,10 +609,48 @@ function compute(model, train) {
   } else {
     prefG = prefetch * U;
   }
+
+  // wrap = decoder layer：all-gather / copy_out / prefetch / reduce 按高峰那一层。
+  // GMM 的 grad_weight 只含这一层路由专家，不随整层变大。
+  if (p.wrap && E > 0 && L > 0) {
+    const iv = p.fullInterval > 0 ? p.fullInterval : 0;
+    const isFullAt = (i) => {
+      if (types.length === L) return String(types[i]).includes("full");
+      if (!hasGdn) return true;
+      if (!iv) return false;
+      return (i + 1) % iv === 0;
+    };
+    const uAt = (i) => {
+      if (hasGdn && !isFullAt(i)) return { u: toG(numelGdn), kind: "gdn", numel: numelGdn };
+      return { u: toG(numelFull), kind: "full", numel: numelFull };
+    };
+    let best = -1;
+    let chosen = uAt(0);
+    let nextSum = 0;
+    for (let i = 0; i < L; i++) {
+      const here = uAt(i);
+      let ns = 0;
+      if (prefG != null) {
+        for (let k = 1; k <= prefetch && i + k < L; k++) ns += uAt(i + k).u;
+      }
+      const score = here.u * (2 + reduceScale) + ns;
+      if (score > best) {
+        best = score;
+        chosen = here;
+        nextSum = ns;
+      }
+    }
+    unitNumel = chosen.numel;
+    Ufull = chosen.numel * bw / GIB;
+    U = chosen.u;
+    uLayerKind = chosen.kind;
+    if (prefG != null) prefG = nextSum;
+  }
+
   const agG = U;
   const copyG = U;
   const reduceInG = U * reduceScale;
-  const gmmG = (p.gmm && E > 0 && !p.wrap) ? U : 0;
+  const gmmG = (p.gmm && E > 0) ? (p.wrap ? uMoe : U) : 0;
   const dynG = sumNum(agG, copyG, prefG, reduceInG, gmmG);
 
   const seq = p.seq;
@@ -659,8 +704,9 @@ function compute(model, train) {
     actG, skipG, dispatchG, hiddenG,
     hcclG, nComm, hcclMB, fragG, ptaG, osG, peakG, deviceG,
     nExpert, vit, L, H, V, E, I, mbs: p.mbs, seq, chunk: p.chunk, prefetch,
-    samplesFwd, tokens, seqLocal, liveLayers, mtp, wrap: !!p.wrap, bw, bReduce, reduceScale,
+    samplesFwd, tokens, seqLocal, liveLayers, mtp, wrap: !!p.wrap, bw, bParam, bReduce, reduceScale,
     topk, warns, gateUp, down, expertNumel, unitNumel, moeOther, attnAvg,
+    uMoeG: uMoe, uLayerKind,
     embed, lm, finalNorm, router, shared, sharedGate, denseMlp, mlpPer, mlpLayersN,
     fullAttn, gdn, attn, mtpN, textN, vitPatch, vitBlock, vitMerger, vitDepth: p.vitDepth || 0,
     shareI, denseI: p.denseI || 0, nQ: p.nQ, nKV: p.nKV, headDim: p.headDim,
@@ -804,16 +850,25 @@ function render() {
     : `all-gather + copy_out + prefetch + foreach_reduce` + (r.isMoe ? ` + GMM` : ``);
   const headNumel = r.V * r.H;
   let uEq;
+  let uMoeEq = "";
+  const layerWrap = r.wrap && r.E > 0;
   if (useHead) {
     uEq = `U_head = V × H × 2 / 1024³ = ${fmtN(headNumel)} × 2 / 1024³ = ${fmtG(r.uHeadG)} GiB`;
   } else if (!r.wrap && r.E > 0) {
     uEq = `U = (gate_up + down) × 2 / 1024³ = ${fmtN(r.expertNumel)} × 2 / 1024³ = ${fmtG(r.Ufull)} GiB`;
+  } else if (layerWrap) {
+    const attnLabel = r.uLayerKind === "gdn" ? "一层 GDN" : "一层 full";
+    uEq = `U_layer = (gate_up + down + 附件 + ${attnLabel}) × 2 / 1024³ = ${fmtN(r.unitNumel)} × 2 / 1024³ = ${fmtG(r.Ufull)} GiB`;
+    uMoeEq = `U_moe = (gate_up + down) × 2 / 1024³ = ${fmtN(r.expertNumel)} × 2 / 1024³ = ${fmtG(r.uMoeG)} GiB`;
   } else {
     uEq = `U = 一层 numel × 2 / 1024³ = ${fmtN(r.unitNumel)} × 2 / 1024³ = ${fmtG(r.Ufull)} GiB`;
   }
+  const uName = layerWrap ? "U_layer" : "U";
+  const prefSame = isNum(r.prefG) && isNum(r.U) && isNum(r.prefetch) && Math.abs(r.prefG - r.prefetch * r.U) < 1e-6;
+  const bp = r.bParam;
   const wEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
-    ? `N/P × 2 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 2 = null`
-    : `N/P × 2 = ${fmtN(r.N)} / ${r.P} × 2 = ${fmtN(r.N / r.P * 2)} B = ${fmtG(r.paramG)} GiB`;
+    ? `N/P × ${bp} = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × ${bp} = null`
+    : `N/P × ${bp} = ${fmtN(r.N)} / ${r.P} × ${bp} = ${fmtN(r.N / r.P * bp)} B = ${fmtG(r.paramG)} GiB`;
   const gEq = (!isNum(r.N) || !isNum(r.P) || r.P === 0)
     ? `N/P × 4 = ${fmtN(r.N)} / ${r.P == null ? "空" : r.P} × 4 = null`
     : `N/P × 4 = ${fmtN(r.N)} / ${r.P} × 4 = ${fmtN(r.N / r.P * 4)} B = ${fmtG(r.gradG)} GiB`;
@@ -882,13 +937,14 @@ function render() {
   const dynLis = useHead
     ? li("未分片参数", `U_head`, mem(r.uHeadG)) +
       li("foreach_reduce 输入", `2U_head　fp32`, mem(isNum(r.uHeadG) ? 2 * r.uHeadG : null))
-    : li("all-gather", `U`, mem(r.agG)) +
-      li("copy_out", `U`, mem(r.copyG)) +
-      li("prefetch", `prefetch × U　prefetch=${r.prefetch}`, mem(r.prefG)) +
-      li("foreach_reduce 输入", `2U　fp32`, mem(r.reduceInG)) +
-      (r.isMoe ? li("GMM grad_weight", r.gmmG ? `U` : `未启用`, mem(r.gmmG)) : "");
+    : li("all-gather", uName, mem(r.agG)) +
+      li("copy_out", uName, mem(r.copyG)) +
+      li("prefetch", prefSame ? `prefetch × ${uName}　prefetch=${r.prefetch}` : `高峰相邻层`, mem(r.prefG)) +
+      li("foreach_reduce 输入", `2${uName}　fp32`, mem(r.reduceInG)) +
+      (r.isMoe ? li("GMM grad_weight", r.gmmG ? (layerWrap ? `U_moe = (gate_up + down) × 2` : `U`) : `未启用`, mem(r.gmmG)) : "");
   const dynKids =
     `<div class="nline">${uEq}</div>` +
+    (uMoeEq ? `<div class="nline">${uMoeEq}</div>` : "") +
     `<div class="tree">` +
     branch("动态模块", "", mem(r.dynG), `<ul class="sub">` + dynLis + `</ul>`) +
     `</div>`;
@@ -899,10 +955,10 @@ function render() {
       nTree),
     partBlock("优化器", COLORS.adam, r.adamG,
       oEq,
-      `<ul class="sub">${li("AdamW", `exp_avg + exp_avg_sq，两份 fp32`, mem(r.adamG))}</ul>`),
+      `<ul class="sub">${li("AdamW", `exp_avg + exp_avg_sq`, mem(r.adamG))}</ul>`),
     partBlock("梯度", COLORS.grad, r.gradG,
       gEq,
-      `<p class="note">reduce-scatter 且 reduce_dtype=fp32 时，各层 reduce 输出是一份 fp32 梯度分片。</p>`),
+      ""),
     partBlock("动态内存", COLORS.dyn, r.dynG,
       dynEq,
       dynKids),
@@ -917,13 +973,13 @@ function render() {
       hcclEq,
       ""),
     partBlock("内存碎片", COLORS.frag, r.fragG,
-      `1 GiB（预估）`,
+      `1 GiB`,
       ""),
     partBlock("PTA", COLORS.pta, r.ptaG,
-      `1 GiB（预估）`,
+      `1 GiB`,
       ""),
     partBlock("Device OS", COLORS.os, r.osG,
-      `3.5 GiB（预估）`,
+      `3.5 GiB`,
       ""),
   ].join("");
 

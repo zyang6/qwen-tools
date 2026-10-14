@@ -608,9 +608,8 @@ function compute(model, train) {
     ? (isNum(T) && isNum(Vloc) ? T * Vloc * bw / GIB : null)
     : 0;
   const recOk = !!train.recompute;
-  const actExtra = train.recompute
-    ? 0
-    : ((isNum(T) && H > 0 && L > 0) ? L * T * H * 2 / GIB : null);
+  const actLayers = train.recompute ? 1 : L;
+  const actExtra = (isNum(T) && H > 0 && actLayers > 0) ? actLayers * T * H * 2 / GIB : null;
   const ws = sumNum(vocabWs, entropyClone, actExtra);
   const peak = sumNum(staticFull, ws);
   const dynG = sumNum(vocabWs, entropyClone);
@@ -619,7 +618,7 @@ function compute(model, train) {
   const tpIllegal = posOk(TP) && isNum(nKV) && nKV > 0 && TP > nKV;
   const peakOk = recOk && !tpIllegal;
   if (tpIllegal) warns.push("TP=" + TP + " > n_kv_heads=" + nKV);
-  else if (!train.recompute) warns.push("已关 recompute：高峰另加约 L×T×H×2");
+  else if (!train.recompute) warns.push("已关 recompute：激活按 L 层入口");
   if (isNum(PP) && PP > 1) warns.push("PP>1：静态按 PP 均分；词表按最后 stage 整份加上（中间 stage 没有词表项）");
 
   const nComm = 1
@@ -785,7 +784,9 @@ function render() {
     ? `2 × T × (V/TP) × 4 = 2 × ${r.T == null ? "null" : fmtN(r.T)} × ${r.Vloc == null ? "null" : fmtN(r.Vloc)} × 4 = null`
     : `2 × T × (V/TP) × 4 = 2 × ${fmtN(r.T)} × ${fmtN(r.Vloc)} × 4 / 1024³ = ${fmtG(r.vocabWs)} GiB`;
   const actEq = S.train.recompute
-    ? `full recompute = 0 GiB`
+    ? (!isNum(r.actG)
+      ? `1 × T × H × 2 = 1 × ${r.T == null ? "null" : fmtN(r.T)} × ${r.H} × 2 = null`
+      : `1 × T × H × 2 = 1 × ${fmtN(r.T)} × ${r.H} × 2 / 1024³ = ${fmtG(r.actG)} GiB`)
     : (!isNum(r.actG)
       ? `L × T × H × 2 = ${r.L} × ${r.T == null ? "null" : fmtN(r.T)} × ${r.H} × 2 = null`
       : `L × T × H × 2 = ${r.L} × ${fmtN(r.T)} × ${r.H} × 2 / 1024³ = ${fmtG(r.actG)} GiB`);
@@ -843,11 +844,9 @@ function render() {
   const epLab = r.EP == null ? "空" : r.EP;
   const etpLab = r.ETP == null ? "空" : r.ETP;
   const rankTitle = r.E > 0
-    ? "N_rank = N_dense/(TP×PP) + N_expert/(EP×ETP×PP)"
-    : "N_rank = N/(TP×PP)";
-  const rankFml = r.E > 0
-    ? `${fmtN(r.nRankDense)} + ${fmtN(r.nRankExp)}`
-    : `${fmtN(r.N)} / (${tpLab}×${ppLab})`;
+    ? `N_rank = N_dense/(TP×PP) + N_expert/(EP×ETP×PP) = ${fmtN(r.nDense)} / (${tpLab}×${ppLab}) + ${fmtN(r.nExpert)} / (${epLab}×${etpLab}×${ppLab})`
+    : `N_rank = N/(TP×PP) = ${fmtN(r.N)} / (${tpLab}×${ppLab})`;
+  const rankFml = "";
   const nTree =
     `<div class="tree">` +
     branch(rankTitle, rankFml, fmtN(r.perRank),
@@ -884,19 +883,13 @@ function render() {
     partBlock("权重", COLORS.weight, r.W, wEq, nTree),
     partBlock("优化器", COLORS.adam, r.AdamGpu, oEq,
       `<ul class="sub">${li("Adam", S.train.adamOff ? "在 CPU，不计入 allocated" : "12 byte/参数", mem(r.AdamGpu))}</ul>`),
-    partBlock("梯度", COLORS.grad, r.G, gEq,
-      `<p class="note">与权重同体积。</p>`),
+    partBlock("梯度", COLORS.grad, r.G, gEq, ""),
     partBlock("动态内存", COLORS.dyn, r.dynG, dynEq, dynKids),
-    partBlock("激活值", COLORS.act, r.actG, actEq,
-      `<ul class="sub">` +
-      (S.train.recompute
-        ? li("层激活", `full recompute，不随 L 累加`, "0 GiB")
-        : li("层激活", `L × T × H × 2`, mem(r.actG))) +
-      `</ul>`),
+    partBlock("激活值", COLORS.act, r.actG, actEq, ""),
     partBlock("HCCL", COLORS.hccl, r.hcclG, hcclEq, ""),
-    partBlock("内存碎片", COLORS.frag, r.fragG, `1 GiB（预估）`, ""),
-    partBlock("PTA", COLORS.pta, r.ptaG, `1 GiB（预估）`, ""),
-    partBlock("Device OS", COLORS.os, r.osG, `3.5 GiB（预估）`, ""),
+    partBlock("内存碎片", COLORS.frag, r.fragG, `1 GiB`, ""),
+    partBlock("PTA", COLORS.pta, r.ptaG, `1 GiB`, ""),
+    partBlock("Device OS", COLORS.os, r.osG, `3.5 GiB`, ""),
   ].join("");
 
   $("mapFoot").textContent = "";

@@ -15,7 +15,7 @@ Qwen 单卡显存估算：Megatron / FSDP 训练，以及 MoE 推理。
 | 页面 | 场景 | 静态怎么切 | 高峰 |
 |---|---|---|---|
 | [`megatron.html`](megatron.html) | Megatron actor update | `N_rank × 4`（bf16 权重+梯度；Adam 在 CPU 则为 0） | 词表 CE：`2×T×(V/TP)×4` |
-| [`fsdp.html`](fsdp.html) | FSDP 全量微调 | `N/P × 10`（不含梯度） | 梯度×2 + `6U` + 激活 |
+| [`fsdp.html`](fsdp.html) | FSDP 全量微调 | `N/P × 12`（fp32 权重 + Adam；不含梯度） | 梯度 `N/P×4` + `6U` + 激活 |
 | [`infer.html`](infer.html) | MoE 推理部署 | 权重按 EP/TP 切 | KV / 激活 / HCCL / ACLGraph / CANN / OS |
 
 Megatron 的 N 不按卡数 P 均分，按 TP/PP/EP/ETP。FSDP 才是 `÷P`。推理页嵌入 [Eco-Sphere Memory Planner](https://eco-sphere.github.io/infer-memory-visualizer/)，权重从 safetensors header 逐张量求和。
@@ -39,7 +39,8 @@ N_rank   = N_dense/(TP×PP) + N_expert/(EP×ETP×PP)
 静态     = N_rank × 4 / 1024³       # Adam CPU → 优化器 0
 T        = mbs × (prompt + response)
 动态内存 = 2 × T × (V/TP) × 4 / 1024³
-激活值   = 0                         # full recompute；关掉才 L×T×H×2
+激活值   = 1 × T × H × 2             # full recompute，只留一层入口
+         = L × T × H × 2             # 关掉 recompute，全部层入口
 HCCL     = n_comm × BUFFSIZE × 2 / 1024
 整卡     = 静态 + 动态 + 激活 + HCCL + 碎片1 + PTA1 + Device OS 3.5
 ```
@@ -49,8 +50,12 @@ HCCL     = n_comm × BUFFSIZE × 2 / 1024
 ## FSDP 口径
 
 ```text
-静态 = N/P × 10          # bf16 参数+Adam；梯度不算进静态
-高峰再叠：梯度×2 + 6U + 激活 + HCCL/碎片/PTA/OS
+静态 = N/P × 12          # fp32 参数(4) + Adam(8)；梯度不算进静态
+高峰再叠：梯度 N/P×4 + 动态内存 + 激活 + HCCL/碎片/PTA/OS
+动态内存：wrap=experts 时为 6U（GMM 与 U 同形）。
+wrap=decoder layer 时为 all-gather + copy_out + prefetch + 2×reduce + GMM，
+前四项按高峰那一层 U_layer，GMM 只加 U_moe = (gate_up + down) × 2。
+有连续 GDN 时高峰是 5×U_gdn + U_moe。
 ```
 
 ## 推理口径
